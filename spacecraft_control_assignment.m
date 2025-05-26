@@ -13,8 +13,6 @@ orbitalW = [0 -meanMot 0];
 theta1 = 0.0; theta2 = 0.0; theta3 = 0.0;
 quatInit = eul_to_quat(theta1, theta2, theta3);
 
-
-
 %% FUNCTIONS %%
 % Verified. 
 % Mean motion of orbit with given semiMajor around body mu. 
