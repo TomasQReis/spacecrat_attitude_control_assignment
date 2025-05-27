@@ -4,17 +4,36 @@ semiMajor = 700 + 6378; % km
 
 meanMot = mean_mot(mu, semiMajor);
 
-%% Initial Conditions
+%% Initial Conditions %% 
+% Initial euler angles. 
+theta1 = 20*pi/180; theta2 = 20*pi/180; theta3 = 20*pi/180;
+
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
-% Defined within LVLH frame. 
-orbitalW = [0 -meanMot 0];
+% Defined within Body frame. 
+orbitalW = - meanMot * [...
+    cos(theta2)*sin(theta3),...
+    sin(theta1)cos(theta2)*cos(theta3), ... 
+                                  sin(theta2)*sin(theta3)];
 
 % Converts initial euler attitude angles to quaternion.
-theta1 = 0.5; theta2 = 0.2; theta3 = 0.7;
+quatInit = eul_to_quat(theta1, theta2, theta3);
 
-disp(eul_to_quat(theta1, theta2, theta3))
-disp(Euler2Quat(theta1, the))
+disp(quatInit)
 
+% Assumes initial qDot=0. 
+qDot = [0, 0, 0, 0];
+
+% Obtains initial omega vector. 
+Q = [quatInit(4), -quatInit(3), quatInit(2), quatInit(1);
+     quatInit(3), quatInit(4), -quatInit(1), quatInit(2);
+     -quatInit(2), -quatInit(1), quatInit(4), quatInit(3);
+     -quatInit(1), -quatInit(2), -quatInit(3), quatInit(4)];
+
+omegaInit = (2 *Q.' *qDot.');
+
+disp(omegaInit(1:3).' + orbitalW)
+
+%% FUNCTIONS %%
 % Verified. 
 % Mean motion of orbit with given semiMajor around body mu. 
 function meanMot = mean_mot(mu, semiMajor)
@@ -32,35 +51,33 @@ function quatMul = quat_mul(quat1, quat2)
     quatMul = (intermMatrix * quat1.').';
 end
 
+% Verified. 
 % Euler to quaternion transformation. 
 function quat = eul_to_quat(theta1, theta2, theta3)
 
-    % Precompute half-angles
+    % Precompute half-angles. 
     t1 = theta1/2;
     t2 = theta2/2;
     t3 = theta3/2;
 
-    % sines and cosines of half-angles
+    % sines and cosines of half-angles. 
     c1 = cos(t1);  s1 = sin(t1);
     c2 = cos(t2);  s2 = sin(t2);
     c3 = cos(t3);  s3 = sin(t3);
 
-    % Quaternion components (matching your picture)
+    % Quaternion components. 
     q1 =  s1*c2*c3  -  c1*s2*s3;
     q2 =  c1*s2*c3  +  s1*c2*s3;
     q3 =  c1*c2*s3  -  s1*s2*c3;
     q4 =  c1*c2*c3  +  s1*s2*s3;
 
-    % Pack into a row-vector
+    % Pack into a row-vector. 
     quat = [q1, q2, q3, q4];
 end
 
-
-function q_out = Euler2Quat(theta_1, theta_2, theta_3)
+% Outputs Omega matrix. 
+function omegaMatx = omega_matrix(qDot, q)
     
-    q_out = [sin(theta_1/2)*cos(theta_2/2)*cos(theta_3/2) - cos(theta_1/2)*sin(theta_2/2)*sin(theta_3/2);
-    cos(theta_1/2)*sin(theta_2/2)*cos(theta_3/2) + sin(theta_1/2)*cos(theta_2/2)*sin(theta_3/2);
-    cos(theta_1/2)*cos(theta_2/2)*sin(theta_3/2) - sin(theta_1/2)*sin(theta_2/2)*cos(theta_3/2);
-    cos(theta_1/2)*cos(theta_2/2)*cos(theta_3/2) + sin(theta_1/2)*sin(theta_2/2)*sin(theta_3/2)];
+    
 
 end

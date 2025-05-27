@@ -5,13 +5,31 @@ semiMajor = 700 + 6378; % km
 meanMot = mean_mot(mu, semiMajor);
 
 %% Initial Conditions %% 
+% Initial euler angles. 
+theta1 = 20*pi/180; theta2 = 20*pi/180; theta3 = 20*pi/180;
+
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
-% Defined within LVLH frame. 
-orbitalW = [0 -meanMot 0];
+% Defined within Body frame. 
+orbitalW = - meanMot * [...
+    cos(theta2)*sin(theta3),...
+    sin(theta1)*sin(theta2)*sin(theta3) + cos(theta1)*cos(theta3), ... 
+    cos(theta1)*sin(theta2)*sin(theta3) - sin(theta1)*cos(theta3)];
 
 % Converts initial euler attitude angles to quaternion.
-theta1 = 0.0; theta2 = 0.0; theta3 = 0.0;
 quatInit = eul_to_quat(theta1, theta2, theta3);
+
+disp(quatInit)
+
+% Assumes initial qDot=0. 
+qDot = [0, 0, 0, 0];
+
+% Obtains initial omega vector. 
+Q = [quatInit(4), -quatInit(3), quatInit(2), quatInit(1);
+     quatInit(3), quatInit(4), -quatInit(1), quatInit(2);
+     -quatInit(2), -quatInit(1), quatInit(4), quatInit(3);
+     -quatInit(1), -quatInit(2), -quatInit(3), quatInit(4)];
+
+omegaInit = (2 *Q.' *qDot.');
 
 %% FUNCTIONS %%
 % Verified. 
@@ -55,4 +73,9 @@ function quat = eul_to_quat(theta1, theta2, theta3)
     quat = [q1, q2, q3, q4];
 end
 
+% Outputs Omega matrix. 
+function omegaMatx = omega_matrix(qDot, q)
+    
+    
 
+end
