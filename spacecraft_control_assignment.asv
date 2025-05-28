@@ -2,7 +2,13 @@
 mu = 3.986004418e5;     % km^3/s^-2
 semiMajor = 700 + 6378; % km
 
+timeStep = 0.1;         % Seconds
+timeFinal = 1000;       % Seconds
+
 meanMot = mean_mot(mu, semiMajor);
+J = [124.531, 0, 0;
+     0, 124.586, 0;
+     0, 0, 0.704];
 
 %% Initial Conditions %% 
 % Initial euler angles. 
@@ -10,28 +16,46 @@ theta1 = 20*pi/180; theta2 = 20*pi/180; theta3 = 20*pi/180;
 
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
 % Defined within Body frame. 
-orbitalW = - meanMot * [...
+wOrbital = - meanMot * [...
     cos(theta2)*sin(theta3),...
-    sin(theta1)cos(theta2)*cos(theta3), ... 
-                                  sin(theta2)*sin(theta3)];
+    sin(theta1)*sin(theta2)*sin(theta3) + cos(theta1)*cos(theta3), ... 
+    cos(theta1)*sin(theta2)*sin(theta3) - sin(theta1)*cos(theta3), ...
+    0];
 
 % Converts initial euler attitude angles to quaternion.
-quatInit = eul_to_quat(theta1, theta2, theta3);
+qInit = eul_to_quat(theta1, theta2, theta3);
 
-disp(quatInit)
+disp(qInit)
 
 % Assumes initial qDot=0. 
 qDot = [0, 0, 0, 0];
 
 % Obtains initial omega vector. 
-Q = [quatInit(4), -quatInit(3), quatInit(2), quatInit(1);
-     quatInit(3), quatInit(4), -quatInit(1), quatInit(2);
-     -quatInit(2), -quatInit(1), quatInit(4), quatInit(3);
-     -quatInit(1), -quatInit(2), -quatInit(3), quatInit(4)];
+Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
+     qInit(3), qInit(4), -qInit(1), qInit(2);
+     -qInit(2), -qInit(1), qInit(4), qInit(3);
+     -qInit(1), -qInit(2), -qInit(3), qInit(4)];
 
-omegaInit = (2 *Q.' *qDot.');
+wInit = ((2 *Q.' *qDot.') + wOrbital.').';
+wDotInit = w_dot(J, meanMot, qInit, wInit.').';
 
-disp(omegaInit(1:3).' + orbitalW)
+% Initializes empty vectors to their final size. 
+times = 0:timeStep:timeFinal;
+numRows = size(times);
+qArr = zeros(numRows(2), 4);
+wArr = q; wDotArr = q;
+
+% Places initial values as first row in the array. 
+qArr(1,:) = qInit;
+wArr(1,:) = wInit;
+wDotArr(1,:) = wDotInit;
+
+for i = 1:numRows(2)
+
+    wArr(i+1,:) = wArr(i,:) + timeStep*wDotArr(i,:);
+
+
+end
 
 %% FUNCTIONS %%
 % Verified. 
@@ -75,9 +99,29 @@ function quat = eul_to_quat(theta1, theta2, theta3)
     quat = [q1, q2, q3, q4];
 end
 
-% Outputs Omega matrix. 
-function omegaMatx = omega_matrix(qDot, q)
+% Verified
+% Outputs angular velocity change vector. 
+function wDot = w_dot(J, meanMot, q, w)
+    % Defines cosine matrix elements via quaternion elems.
+    C13 = 2*(q(1)*q(3) + q(2)*q(4));
+    C23 = 2*(q(2)*q(3) + q(1)*q(4));
+    C33 = 1 - 2*(q(1)^2 + q(2)^2);
+   
+    % Defines intermediate matrices. 
+    C = [0, -C33, C23;
+        C33, 0, -C13;
+        -C23, C13, 0];
+    W = [0, -w(3), w(2);
+         w(3), 0, -w(1);
+         -w(2), w(1), 0];
+
+    wDot = [inv(J)*((3*meanMot^2*C*J*[C13;C23;33]) + ...
+           [0.001; 0.001; 0.001] - W*J*w(1:3)); 0];
+end
+
+% Outputs q_dot matrix. 
+function qDot = q_dot(w, q)
     
-    
+    qDot = 
 
 end
