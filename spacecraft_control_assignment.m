@@ -17,7 +17,7 @@ J = [124.531, 0, 0;
 
 %% Initial Conditions %% 
 % Initial euler angles. 
-theta1 = 20*pi/180; theta2 = 20*pi/180; theta3 = 20*pi/180;
+theta1 = 5*pi/180; theta2 = 5*pi/180; theta3 = 5*pi/180;
 
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
 % Defined within Body frame. 
@@ -30,8 +30,6 @@ wOrbital = - meanMot * [...
 % Converts initial euler attitude angles to quaternion.
 qInit = eul_to_quat(theta1, theta2, theta3);
 
-disp(qInit)
-
 % Assumes initial qDot=0. 
 qDot = [0, 0, 0, 0];
 
@@ -42,27 +40,58 @@ Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
      -qInit(1), -qInit(2), -qInit(3), qInit(4)];
 
 wInit = ((2 *Q.' *qDot.') + wOrbital.').';
-wDotInit = w_dot(J, meanMot, qInit, wInit.').';
+wDotInit = w_dot(J, meanMot, qInit, wInit, [0,0,0]).';
 
 % Initializes empty vectors to their final size. 
 times = 0:timeStep:timeFinal;
 numRows = size(times);
 qArr = zeros(numRows(2), 4);
-wArr = q;
+wArr = zeros(numRows(2), 4);
 
 % Places initial values as first row in the array. 
 qArr(1,:) = qInit;
 wArr(1,:) = wInit;
+wDotArr(1,:) = wDotInit;
 
-for i = 1:numRows(2)
+% Initializes target quaternion. 
+qTarget = eul_to_quat(0, 0, 0);
 
-    wArr(i+1,:) = wArr(i,:) + timeStep*wDotArr(i,:);
+% Defines controller gains. 
+K0 = 0.08;
+K = 3.6;
+K1 = K; K2 = K; K3 = K;
+
+for i = 1:numRows(2)-1
+
+    % Updates control torque. 
+    qError = quat_mul(qArr(i,:), qTarget);
+    t1 = -(K0 * qError(1) + K1 * wArr(i,1));
+    t2 = -(K0 * qError(2) + K2 * wArr(i,2));
+    t3 = -(K0 * qError(3) + K3 * wArr(i,3));
+    controlTorque = [t1, t2, t3];
+    %controlTorque = [0,0,0];
+
+    % Updates states for uncontrolled system. 
+    wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
     qDot = q_dot(wArr(i+1,:), qArr(i,:));
-    qArr(i+1,:) = qArr(i,:) + timeStep*qDot;
-    % TODO: Put the w_dot function here. 
-    wDot = 
-    
+    qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).');
+    qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:));
+    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
+                           controlTorque);
+
 end
+
+
+
+figure
+subplot(2,2,1)
+plot( times, qArr(:, 1))
+subplot(2,2,2)
+plot( times, qArr(:, 2))
+subplot(2,2,3)
+plot( times, qArr(:, 3))
+subplot(2,2,4)
+plot( times, qArr(:, 4))
 
 %% FUNCTIONS %%
 % Verified. 
@@ -74,12 +103,12 @@ end
 % Verified. 
 % Quaternion matrix multiplication function. 
 % Follows the notation where q_4 is the real part of the quaternion. 
-function quatMul = quat_mul(quat1, quat2)
-    intermMatrix = [quat2(4), quat2(3), -quat2(2), quat2(1);
-                    -quat2(3), quat2(4), quat2(1), quat2(2);
-                    quat2(2), -quat2(1), quat2(4), quat2(3);
-                    -quat2(1), -quat2(2), -quat2(3), quat2(4)];
-    quatMul = (intermMatrix * quat1.').';
+function quatMul = quat_mul(quatCurrent, quatTarget)
+    intermMatrix = [quatTarget(4), quatTarget(3), -quatTarget(2), -quatTarget(1);
+                    -quatTarget(3), quatTarget(4), quatTarget(1), -quatTarget(2);
+                    quatTarget(2), -quatTarget(1), quatTarget(4), -quatTarget(3);
+                    quatTarget(1), quatTarget(2), quatTarget(3), quatTarget(4)];
+    quatMul = (intermMatrix * quatCurrent.').';
 end
 
 % Verified. 
@@ -108,7 +137,7 @@ end
 
 % Verified
 % Outputs angular velocity change vector. 
-function wDot = w_dot(J, meanMot, q, w)
+function wDot = w_dot(J, meanMot, q, w, controlTorque)
     % Defines cosine matrix elements via quaternion elems.
     C13 = 2*(q(1)*q(3) + q(2)*q(4));
     C23 = 2*(q(2)*q(3) + q(1)*q(4));
@@ -122,8 +151,10 @@ function wDot = w_dot(J, meanMot, q, w)
          w(3), 0, -w(1);
          -w(2), w(1), 0];
 
-    wDot = [inv(J)*((3*meanMot^2*C*J*[C13;C23;33]) + ...
-           [0.001; 0.001; 0.001] - W*J*w(1:3)); 0];
+    leftSide = 3*meanMot^2*C*J*[C13;C23;33];
+    rightSide = [0.001; 0.001; 0.001] - W*J*w(1:3).';
+
+    wDot = [inv(J)*((leftSide + rightSide + controlTorque.')); 0];
 end
 
 % Outputs q_dot matrix. 
@@ -132,7 +163,7 @@ function qDot = q_dot(w, q)
     omegaMatrix = [0, w(3), -w(2), w(1);
                    -w(3), 0, w(1), w(2);
                    w(2), -w(1), 0, w(3);
-                   -w(1), w(2), -w(3), 0];
-   
-    qDot = 0.5 * omegaMatrix * q;
+                   -w(1), -w(2), -w(3), 0];
+
+    qDot = 0.5 * omegaMatrix * q.';
 end
