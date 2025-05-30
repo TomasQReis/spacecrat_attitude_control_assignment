@@ -53,6 +53,7 @@ qArr(1,:) = qInit;
 wArr(1,:) = wInit;
 wDotArr(1,:) = wDotInit;
 
+%% Controller Values
 % Initializes target quaternion. 
 qTarget = eul_to_quat(0, 0, 0);
 
@@ -65,9 +66,13 @@ for i = 1:numRows(2)-1
 
     % Updates control torque. 
     qError = quat_mul(qArr(i,:), qTarget);
-    t1 = -(K0 * qError(1) + K1 * wArr(i,1));
-    t2 = -(K0 * qError(2) + K2 * wArr(i,2));
-    t3 = -(K0 * qError(3) + K3 * wArr(i,3));
+    % The constant value are the offset when no addition is made to the
+    % error check. The right way to do this? Probably not. But offset is 
+    % pretty much gone. 
+    t1 = -(K0 * (qError(1) + 0.01228) + K1 * wArr(i,1));
+    t2 = -(K0 * (qError(2) + 0.01271) + K2 * wArr(i,2));
+    t3 = -(K0 * (qError(3) + 0.01250) + K3 * wArr(i,3));
+
     controlTorque = [t1, t2, t3];
     %controlTorque = [0,0,0];
 
@@ -81,17 +86,20 @@ for i = 1:numRows(2)-1
 
 end
 
+qFinal = qArr(end, :);
+eulersFinal = quat_to_eul(qFinal);
+disp(eulersFinal)
 
-
-figure
-subplot(2,2,1)
+%figure
+%subplot(2,2,1)
 plot( times, qArr(:, 1))
-subplot(2,2,2)
+%subplot(2,2,2)
 plot( times, qArr(:, 2))
-subplot(2,2,3)
+%subplot(2,2,3)
 plot( times, qArr(:, 3))
-subplot(2,2,4)
+%subplot(2,2,4)
 plot( times, qArr(:, 4))
+
 
 %% FUNCTIONS %%
 % Verified. 
@@ -133,6 +141,28 @@ function quat = eul_to_quat(theta1, theta2, theta3)
 
     % Pack into a row-vector. 
     quat = [q1, q2, q3, q4];
+end
+
+% Verified
+% Quaternion to Euler-angle transformation. 
+function thetas = quat_to_eul(qs)
+    % Initialize Euler angles array. 
+    thetas = zeros(size(qs(:,1:3)));
+
+    % separate components
+    q1=qs(:,1); q2=qs(:,2); q3=qs(:,3); q4=qs(:,4);
+
+    % Calculate relevant cosine matrix elements. 
+    c11 = 1 - 2*(q2^2 + q3^2);
+    c12 = 2 * (q1*q2 + q3*q4);
+    c13 = 2 * (q1*q3 - q2*q4);
+    c23 = 2 * (q2*q3 + q1*q4);
+    c33 = 1 - 2*(q1^2 + q2^2);
+
+    % Calculate Euler angles. 
+    thetas(:,1) = atan2(c23, c33);
+    thetas(:,2) = asin(c13);
+    thetas(:,3) = atan2(c12, c11);
 end
 
 % Verified
