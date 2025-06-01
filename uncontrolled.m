@@ -17,18 +17,6 @@ J = [124.531, 0, 0;
 times = 0:timeStep:timeFinal;
 numRows = size(times);
 
-%% Error values. 
-% Euler angle std deviations.  
-theta1Noise = 0.1*pi/180; theta2Noise = 0.1*pi/180; 
-theta3Noise = 0.1*pi/180;
-
-theta1Noises = theta1Noise * rand(numRows(2),1);
-theta2Noises = theta2Noise * rand(numRows(2),1);
-theta3Noises = theta3Noise * rand(numRows(2),1);
-
-% Angular velocity bias. 
-wBias = [0.1, -0.1, 0.15, 0] * pi/180;
-
 %% Initial Conditions %% 
 % Initial euler angles. 
 theta1 = 5*pi/180; theta2 = 5*pi/180; theta3 = 5*pi/180;
@@ -53,12 +41,7 @@ Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
      -qInit(1), -qInit(2), -qInit(3), qInit(4)];
 
 wInit = ((2 *Q.' *qDot.') + wOrbital.').';
-wDotInit = w_dot(J, meanMot, qInit, wInit, [0,0,0]).';
-
-% Creates initial error quaternion and applies. 
-qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
-                         theta3Noises(1));
-qInit = quat_mul(qInitError, qInit);
+wDotInit = w_dot(J, meanMot, qInit, wInit).';
 
 % Initializes empty vectors to their final size. 
 qArr = zeros(numRows(2), 4);
@@ -69,48 +52,20 @@ qArr(1,:) = qInit;
 wArr(1,:) = wInit;
 wDotArr(1,:) = wDotInit;
 
-%% Controller Values. 
-% Initializes target quaternion. 
-qTarget = eul_to_quat(0, 0, 0);
-
-% Defines controller gains. 
-K0 = 10.9;
-K = 3.2;
-K1 = K; K2 = K; K3 = K;
-
 for i = 1:numRows(2)-1
-
-    % Updates control torque. 
-    qError = quat_error(qArr(i,:), qTarget);
-    % The constant value are the offset when no addition is made to the
-    % error check. The right way to do this? Probably not. But offset is 
-    % pretty much gone. 
-    t1 = -(K0 * (qError(1) ) + K1 * wArr(i,1));
-    t2 = -(K0 * (qError(2) ) + K2 * wArr(i,2));
-    t3 = -(K0 * (qError(3) ) + K3 * wArr(i,3));
-
-    controlTorque = [t1, t2, t3];
-
-    % Adds noise values. 
-    % Creates euler angle error values. 
-    qNoise = eul_to_quat(theta1Noises(i+1), theta2Noises(i+1), ...
-                         theta3Noises(i+1));
-
 
     % Updates states for uncontrolled system. 
     wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
     qDot = q_dot(wArr(i+1,:), qArr(i,:));
     qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).');
-    % Adds noise to the updated quaternion value. 
-    qArr(i+1,:) = quat_mul(qNoise, qArr(i+1,:));
     qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:));
-    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
-                           controlTorque);
+    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:));
+                           
 
 end
 
 qFinal = qArr(end, :);
-eulersFinal = quat_to_eul(qFinal);
+eulersFinal = quat_to_eul(qFinal) * 180/pi;
 disp(eulersFinal)
 
 figure
@@ -187,7 +142,7 @@ function thetas = quat_to_eul(qs)
     % Initialize Euler angles array. 
     thetas = zeros(size(qs(:,1:3)));
 
-    % separate components
+    % separate components. 
     q1=qs(:,1); q2=qs(:,2); q3=qs(:,3); q4=qs(:,4);
 
     % Calculate relevant cosine matrix elements. 
@@ -205,7 +160,7 @@ end
 
 % Verified
 % Outputs angular velocity change vector. 
-function wDot = w_dot(J, meanMot, q, w, controlTorque)
+function wDot = w_dot(J, meanMot, q, w)
     % Defines cosine matrix elements via quaternion elems.
     C13 = 2*(q(1)*q(3) + q(2)*q(4));
     C23 = 2*(q(2)*q(3) + q(1)*q(4));
@@ -222,7 +177,7 @@ function wDot = w_dot(J, meanMot, q, w, controlTorque)
     leftSide = 3*meanMot^2*C*J*[C13;C23;33];
     rightSide = [0.001; 0.001; 0.001] - W*J*w(1:3).';
 
-    wDot = [inv(J)*((leftSide + rightSide + controlTorque.')); 0];
+    wDot = [inv(J)*((leftSide + rightSide)); 0];
 end
 
 % Outputs q_dot matrix. 
