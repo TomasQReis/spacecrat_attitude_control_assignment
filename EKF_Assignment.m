@@ -306,6 +306,8 @@ for k = 1:N
     % 5. Kalman gain calculation K(k+1) (gain) [4 x 3]
     K               = P_k1_k * Hx'*inv(P_zz);
 
+    disp(size(K))
+
 
     % 6. Measurement update to calculate optimal state x(k+1|k+1) [4 x 1]
     x_k1_k1         = x_k1_k + K * (Z_k(:,k) - z_k1_k); 

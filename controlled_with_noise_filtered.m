@@ -27,7 +27,7 @@ theta2Noises = theta2Noise * randn(numRows(2),1);
 theta3Noises = theta3Noise * randn(numRows(2),1);
 
 % Angular velocity bias. 
-wBias = [0.1, -0.1, 0.15, 0] * pi/180;
+wBias = [0.1, -0.1, 0.15] * pi/180;
 
 %% Initial Conditions %% 
 % Initial euler angles. 
@@ -53,7 +53,9 @@ Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
      -qInit(1), -qInit(2), -qInit(3), qInit(4)];
 
 wInit = ((2 *Q.' *qDot.') + wOrbital.').';
+wInit = wInit(1:3);
 wDotInit = w_dot(J, meanMot, qInit, wInit, [0,0,0]).';
+wDotInit = wDotInit(1:3);
 
 % Creates initial error quaternion and applies. 
 qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
@@ -62,21 +64,24 @@ qInit = quat_mul(qInitError, qInit);
 
 % Initializes empty vectors to their final size. 
 % OLD
-qArr = zeros(numRows(2), 4);
-qMeasArr = zeros(numRows(2), 4);
-
-wArr = zeros(numRows(2), 4);
-wMeasArr = zeros(numRows(2),4);
+% qArr = zeros(numRows(2), 4);
+% qMeasArr = zeros(numRows(2), 4);
+% 
+% wArr = zeros(numRows(2), 4);
+% wMeasArr = zeros(numRows(2),4);
 
 % NEW
+%% Initializes states. 
 % State definition: quaternions, omega, omega_bias. 
-statesArr = zeros(numRows(2), 10);          % Real states. 
-statesMeasArr = zeros(numRows(2), 7);       % Noisy/biased states. 
-statesDotArr = zeros(numRows(2), 7);        % State change. 
+statesArr = zeros(numRows(2), 10);           % Real states. 
+statesArrEKF = zeros(numRows(2), 10);
+statesMeasArr = zeros(numRows(2), 10);       % Noisy/biased states. 
+statesDotArr = zeros(numRows(2), 10);        % State change. 
 
 % Places initial values as first row in the array. 
 statesArr(1,1:4) = qInit;
 statesArr(1,5:7) = wInit;
+statesArrEKF(1,:) = statesArr(1,:);
 
 statesMeasArr(1,1:4) = quat_mul(qInitError, qInit);
 statesMeasArr(1,5:7) = wInit + wBias;
@@ -89,67 +94,113 @@ statesDotArr(1,5:7) = wDotInit;
 qTarget = eul_to_quat(0, 0, 0);
 
 % Defines controller gains. 
-K0 = 1.15;
+K0 = 1.9;
 K = 6.8;
 K1 = K; K2 = K; K3 = K;
 
-%% Filter initializing. 
+%% Filtering. 
 P00 = eye(7);
 R = diag([1,1,1,1,0,0,0]);
 
+% system behavior vector and jacobian matrix. f(x,u) to F(x,u):
+syms q1 q2 q3 q4 w1 w2 w3 T1 T2 T3 w1bias w2bias w3bias
+C13 = 2*(q1*q3 + q2*q4);
+C23 = 2*(q2*q3 + q1*q4);
+C33 = 1 - 2*(q1^2 + q2^2);
+fMatx = [0.5*(q2*w3 - q3*w2 + q4*w1);
+         0.5*(-q1*w3 + q3*w1 + q4*w2);
+         0.5*(q1*w2 - q2*w1 + q4*w3);
+         0.5*(-q1*w1 - q2*w2 -q3*w3);
+         1/J(1,1) * (3*meanMot^2 * (-J(2,2)*2*(q2*q3 + q1*q4)*(1 - 2*(q1^2 + q2^2)) + J(3,3)*(1 - 2*(q1^2 + q2^2))*2*(q2*q3 + q1*q4)) + T1 - (-J(2,2)*w1*w3 + J(3,3)*w3*w2));
+         1/J(2,2) * (3*meanMot^2 * (J(1,1)*2*(q1*q3 + q2*q4)*(1 - 2*(q1^2 + q2^2))) + J(3,3)*(2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T2 - (J(1,1)*w2*w3 - J(3,3)*w3*w1));
+         1/J(3,3) * (3*meanMot^2 * (-J(1,1)*2*(q1*q3 + q2*q4)*2*(q2*q3 + q1*q4) + J(2,2)*2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T3 - (-J(1,1)*w1*w2 + J(2,2)*w2*w1));
+         0; 0; 0];
+FMatx = jacobian(fMatx, [q1, q2, q3, q4, w1, w2, w3, ...
+    w1bias, w2bias, w3bias]);
+FMatxFunc = matlabFunction(FMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
+    w1bias, w2bias, w3bias});
+
+G = zeros(10,1);
+
+% measurement behavior vector and jacobian matrix. h(x,u) to H(x,u):
+% WARNING: The reccomended function here is the atan2 function. 
+% The current implementation *might* cause issues for thetas outside of 
+% +-90º.
+hMatx = [atan(2*(q4*q1 + q2*q3) / 1-2*(q1^2 + q2^2));
+         asin(2*(q2*q4 - q1*q3));
+         atan(2*(q1*q2 + q3*q4) / 1-2*(q2^2 + q3^2));
+         w1; w2; w3];
+HMatx = jacobian(hMatx, [q1, q2, q3, q4, w1, w2, w3, ...
+    w1bias, w2bias, w3bias]);
+HMatxFunc = matlabFunction(HMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
+    w1bias, w2bias, w3bias});
+
+% Initial covariance matrix P. 
+Pk1k1 = 10*eye(10);
+
+% R matrix. 
+RMatx = diag([theta1Noise^2, theta2Noise^2, theta3Noise^2, ...
+          1e-6^2, 1e-6^2, 1e-6^2]);
+
 %% Runs the controlled system. 
-for i = 1:numRows(2)-1
+for i = 2:numRows(2)
 
     %% Control logic. 
     % Updates control torque. 
-    qError = quat_error(statesMeasArr(i,1:4), qTarget);
+    qError = quat_error(statesMeasArr(i-1,1:4), qTarget);
      
-    t1 = -(K0 * (qError(1) ) + K1 * wMeasArr(i,1));
-    t2 = -(K0 * (qError(2) ) + K2 * wMeasArr(i,2));
-    t3 = -(K0 * (qError(3) ) + K3 * wMeasArr(i,3));
+    t1 = -(K0 * (qError(1) ) + K1 * statesMeasArr(i-1,5));
+    t2 = -(K0 * (qError(2) ) + K2 * statesMeasArr(i-1,6));
+    t3 = -(K0 * (qError(3) ) + K3 * statesMeasArr(i-1,7));
 
     controlTorque = [t1, t2, t3];
 
     %% Initial state prediction. 
-    
+    statesDotArr(i,1:4) = q_dot(statesArr(i-1,5:7), statesArr(i-1,1:4));
+    statesDotArr(i,5:7) = w_dot(J, meanMot, statesArr(i-1,1:4), ...
+                                statesArr(i-1,5:7), controlTorque);
 
+    statesArr(i,:) = statesArr(i-1,:) + timeStep * statesDotArr(i,:);
+    % Normalizes quaternion vector. 
+    statesArr(i,1:4) = statesArr(i,1:4)/norm(statesArr(i,1:4));
 
-    
-    %% Predicts states. 
-    wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
-    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
-                           controlTorque);
-    qDot = q_dot(wArr(i+1,:), qArr(i,:));
-    qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).');
-    qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:));
-
-    %% Adds biases and noise. 
-    % Adds bias to ideal omega. 
-    wMeasArr(i+1,:) = wArr(i+1,:) + wBias;
-
+    %% Adds noise to states. 
     % Creates euler angle error values. 
-    qNoise = eul_to_quat(theta1Noises(i+1), theta2Noises(i+1), ...
-                         theta3Noises(i+1));
+    qNoise = eul_to_quat(theta1Noises(i), theta2Noises(i), ...
+                         theta3Noises(i));
+    % Adds noise to quaternion elements. 
+    statesMeasArr(i,1:4) = quat_mul(qNoise, statesArr(i,1:4));
+    statesMeasArr(i,1:4) = statesMeasArr(i,1:4)/norm(statesMeasArr(i,1:4));
 
-    % Adds noise to the updated quaternion value. 
-    qMeasArr(i+1,:) = quat_mul(qNoise, qArr(i+1,:));
-    qMeasArr(i+1,:) = qMeasArr(i+1,:)/norm(qArr(i+1,:));
-
-    %% Filter portion. 
-    % Difference between measured and predicted. 
-    wResidual(i+1,:) = wMeasArr(i+1,:) - wArr(i+1,:);
-    qResidual(i+1,:) = qMeasArr(i+1,:) - qArr(i+1,:);
-
+    % Adds bias to ideal omega. 
+    statesMeasArr(i,5:7) = statesArr(i,5:7) + wBias;    
     
+    % F Matrix at point.
+    FMatxNum = FMatxFunc(statesArr(i,1), statesArr(i,2), statesArr(i,3), ...
+        statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7), ...
+        statesArr(i,8), statesArr(i,9), statesArr(i,10));
+    HMatxNum = HMatxFunc(statesArr(i,1), statesArr(i,2), statesArr(i,3), ...
+        statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7), ...
+        statesArr(i,8), statesArr(i,9), statesArr(i,10));
+    % Psi matrix. Discretization of jacobian of f. 
+    PsiMatx = c2d(FMatxNum, G, timeStep);
 
+    % State prediction covariance. 
+    Pk1k = PsiMatx*Pk1k1*PsiMatx';
+
+    % Kalman gain matrix. Should end up being 10x1. 
+    K = Pk1k*HMatxNum'*inv(HMatxNum*Pk1k*HMatxNum' + RMatx);
+
+    disp(size(K))
+
+    % Kalman filtered state estimate. 
+    statesArrEKF(i,:) = statesArr(i,:) + K*(statesMeasArr(i,:) - ...
+        HMatxNum*statesArr(i,:)');
+    
 
 end
 
-
-
-
-qFinal = qArr(end, :);
-eulersFinal = quat_to_eul(qFinal) * 180/pi;
+eulersFinal = quat_to_eul(statesArr(end, 1:4)) * 180/pi;
 disp(eulersFinal)
 
 
@@ -157,34 +208,25 @@ disp(eulersFinal)
 figure
 subplot(2,2,1)
 hold all
-plot( times, qMeasArr(:, 1))
-plot(times, qArr(:,1))
+plot( times, statesMeasArr(:, 1))
+plot(times, statesArr(:,1))
 %ylim([-1.1, 1.1])
 subplot(2,2,2)
 hold all
-plot( times, qMeasArr(:, 2))
-plot(times, qArr(:,2))
+plot( times, statesMeasArr(:, 2))
+plot(times, statesArr(:,2))
 %ylim([-1.1, 1.1])
 subplot(2,2,3)
 hold all
-plot( times, qMeasArr(:, 3))
-plot(times, qArr(:,3))
+plot( times, statesMeasArr(:, 3))
+plot(times, statesArr(:,3))
 %ylim([-1.1, 1.1])
 subplot(2,2,4)
 hold all
-plot( times, qMeasArr(:, 4))
-plot(times, qArr(:,4))
+plot( times, statesMeasArr(:, 4))
+plot(times, statesArr(:,4))
 %ylim([-1.1, 1.1])
 
-
-%% Plots measured minus real omega. Should see the offset. 
-figure
-subplot(1,3,1)
-plot(times, wMeasArr(:,1) - wArr(:,1))
-subplot(1,3,2)
-plot(times, wMeasArr(:,2) - wArr(:,2))
-subplot(1,3,3)
-plot(times, wMeasArr(:,3) - wArr(:,3))
 
 
 
@@ -192,6 +234,10 @@ plot(times, wMeasArr(:,3) - wArr(:,3))
 
 
 %% FUNCTIONS %%
+
+
+
+
 % Verified. 
 % Mean motion of orbit with given semiMajor around body mu. 
 function meanMot = mean_mot(mu, semiMajor)
@@ -289,7 +335,7 @@ function wDot = w_dot(J, meanMot, q, w, controlTorque)
     leftSide = 3*meanMot^2*C*J*[C13;C23;33];
     rightSide = [0.001; 0.001; 0.001] - W*J*w(1:3).';
 
-    wDot = [inv(J)*((leftSide + rightSide + controlTorque.')); 0];
+    wDot = [inv(J)*((leftSide + rightSide + controlTorque.'))];
 end
 
 % Outputs q_dot matrix. 

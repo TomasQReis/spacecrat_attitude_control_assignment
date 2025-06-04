@@ -61,29 +61,11 @@ qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
 qInit = quat_mul(qInitError, qInit);
 
 % Initializes empty vectors to their final size. 
-% OLD
 qArr = zeros(numRows(2), 4);
 qMeasArr = zeros(numRows(2), 4);
 
 wArr = zeros(numRows(2), 4);
 wMeasArr = zeros(numRows(2),4);
-
-% NEW
-% State definition: quaternions, omega, omega_bias. 
-statesArr = zeros(numRows(2), 10);
-statesMeasuresArr = zeros(numRows(2), 7);
-statesDotArr = zeros(numRows(2), 7);
-
-
-% Places initial values as first row in the array. 
-statesArr(1,1:4) = qInit;
-statesArr(1,5:7) = wInit;
-
-statesMeasArr(1,1:4) = quat_mul(qInitError, qInit);
-statesMeasArr(1,5:7) = wInit + wBias;
-
-statesDotArr(1,1:4) = qDot;
-statesDotArr(1,5:7) = wDotInit;
 
 %% Controller Values. 
 % Initializes target quaternion. 
