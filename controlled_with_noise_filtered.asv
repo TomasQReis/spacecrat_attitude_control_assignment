@@ -61,28 +61,17 @@ qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
 qInit = quat_mul(qInitError, qInit);
 
 % Initializes empty vectors to their final size. 
-% OLD
 qArr = zeros(numRows(2), 4);
 qMeasArr = zeros(numRows(2), 4);
-
 wArr = zeros(numRows(2), 4);
 wMeasArr = zeros(numRows(2),4);
 
-% NEW
-% State definition: quaternions, omega, omega_bias. 
-statesArr = zeros(numRows(2), 10);          % Real states. 
-statesMeasArr = zeros(numRows(2), 7);       % Noisy/biased states. 
-statesDotArr = zeros(numRows(2), 7);        % State change. 
-
 % Places initial values as first row in the array. 
-statesArr(1,1:4) = qInit;
-statesArr(1,5:7) = wInit;
-
-statesMeasArr(1,1:4) = quat_mul(qInitError, qInit);
-statesMeasArr(1,5:7) = wInit + wBias;
-
-statesDotArr(1,1:4) = qDot;
-statesDotArr(1,5:7) = wDotInit;
+qArr(1,:) = qInit;
+wArr(1,:) = wInit;
+wDotArr(1,:) = wDotInit;
+qMeasArr(1,:) = quat_mul(qInitError, qInit);
+wMeasArr(1,:) = wInit + wBias;
 
 %% Controller Values. 
 % Initializes target quaternion. 
@@ -94,26 +83,22 @@ K = 6.8;
 K1 = K; K2 = K; K3 = K;
 
 %% Filter initializing. 
-P00 = eye(7);
-R = diag([1,1,1,1,0,0,0]);
+P00 = diag()
 
 %% Runs the controlled system. 
 for i = 1:numRows(2)-1
 
-    %% Control logic. 
     % Updates control torque. 
-    qError = quat_error(statesMeasArr(i,1:4), qTarget);
-     
+    qError = quat_error(qMeasArr(i,:), qTarget);
+    
+    % The constant value are the offset when no addition is made to the
+    % error check. The right way to do this? Probably not. But offset is 
+    % pretty much gone. 
     t1 = -(K0 * (qError(1) ) + K1 * wMeasArr(i,1));
     t2 = -(K0 * (qError(2) ) + K2 * wMeasArr(i,2));
     t3 = -(K0 * (qError(3) ) + K3 * wMeasArr(i,3));
 
     controlTorque = [t1, t2, t3];
-
-    %% Initial state prediction. 
-    
-
-
     
     %% Predicts states. 
     wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
@@ -140,7 +125,7 @@ for i = 1:numRows(2)-1
     wResidual(i+1,:) = wMeasArr(i+1,:) - wArr(i+1,:);
     qResidual(i+1,:) = qMeasArr(i+1,:) - qArr(i+1,:);
 
-    
+
 
 
 end

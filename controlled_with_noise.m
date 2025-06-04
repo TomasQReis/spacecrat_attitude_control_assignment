@@ -43,7 +43,7 @@ wOrbital = - meanMot * [...
 
 % Assumes initial qDot=0. 
 qDot = [0, 0, 0, 0];
-% Converts initial euler attitude angles to quaternion.
+% Converts initial euler attitude angles to quaternion. 
 qInit = eul_to_quat(theta1, theta2, theta3);
 
 % Obtains initial omega vector. 
@@ -61,29 +61,43 @@ qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
 qInit = quat_mul(qInitError, qInit);
 
 % Initializes empty vectors to their final size. 
+% OLD
 qArr = zeros(numRows(2), 4);
+qMeasArr = zeros(numRows(2), 4);
+
 wArr = zeros(numRows(2), 4);
 wMeasArr = zeros(numRows(2),4);
 
+% NEW
+% State definition: quaternions, omega, omega_bias. 
+statesArr = zeros(numRows(2), 10);
+statesMeasuresArr = zeros(numRows(2), 7);
+statesDotArr = zeros(numRows(2), 7);
+
+
 % Places initial values as first row in the array. 
-qArr(1,:) = qInit;
-wArr(1,:) = wInit;
-wMeasArr(1,:) = wInit + wBias;
-wDotArr(1,:) = wDotInit;
+statesArr(1,1:4) = qInit;
+statesArr(1,5:7) = wInit;
+
+statesMeasArr(1,1:4) = quat_mul(qInitError, qInit);
+statesMeasArr(1,5:7) = wInit + wBias;
+
+statesDotArr(1,1:4) = qDot;
+statesDotArr(1,5:7) = wDotInit;
 
 %% Controller Values. 
 % Initializes target quaternion. 
 qTarget = eul_to_quat(0, 0, 0);
 
 % Defines controller gains. 
-K0 = 1.15;
+K0 = 1.9;
 K = 6.8;
 K1 = K; K2 = K; K3 = K;
 
 for i = 1:numRows(2)-1
 
     % Updates control torque. 
-    qError = quat_error(qArr(i,:), qTarget);
+    qError = quat_error(qMeasArr(i,:), qTarget);
     
     % The constant value are the offset when no addition is made to the
     % error check. The right way to do this? Probably not. But offset is 
@@ -93,25 +107,28 @@ for i = 1:numRows(2)-1
     t3 = -(K0 * (qError(3) ) + K3 * wMeasArr(i,3));
 
     controlTorque = [t1, t2, t3];
+    
+    %% Updates states. 
+    wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
+    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
+                           controlTorque);
+    qDot = q_dot(wArr(i+1,:), qArr(i,:));
+    qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).'); 
+    qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:)); 
 
-    % Adds noise values. x\
+    %% Adds biases and noise. 
+    % Adds bias to ideal omega. 
+    wMeasArr(i+1,:) = wArr(i+1,:) + wBias;
+
     % Creates euler angle error values. 
     qNoise = eul_to_quat(theta1Noises(i+1), theta2Noises(i+1), ...
                          theta3Noises(i+1));
 
-    %% Updates states. 
-    wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
-
-    % Adds bias to full array of measurements. 
-    wMeasArr(i+1,:) = wArr(i+1,:) + wBias;
-    qDot = q_dot(wArr(i+1,:), qArr(i,:));
-    qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).');
-
     % Adds noise to the updated quaternion value. 
-    qArr(i+1,:) = quat_mul(qNoise, qArr(i+1,:));
-    qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:));
-    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
-                           controlTorque);
+    qMeasArr(i+1,:) = quat_mul(qNoise, qArr(i+1,:));
+    qMeasArr(i+1,:) = qMeasArr(i+1,:)/norm(qArr(i+1,:));
+
+    
 
 end
 
@@ -121,31 +138,35 @@ disp(eulersFinal)
 
 figure
 subplot(2,2,1)
-plot( times, qArr(:, 1))
-ylim([-1.1, 1.1])
+hold all
+plot( times, qMeasArr(:, 1))
+plot(times, qArr(:,1))
+%ylim([-1.1, 1.1])
 subplot(2,2,2)
-plot( times, qArr(:, 2))
-ylim([-1.1, 1.1])
+hold all
+plot( times, qMeasArr(:, 2))
+plot(times, qArr(:,2))
+%ylim([-1.1, 1.1])
 subplot(2,2,3)
-plot( times, qArr(:, 3))
-ylim([-1.1, 1.1])
+hold all
+plot( times, qMeasArr(:, 3))
+plot(times, qArr(:,3))
+%ylim([-1.1, 1.1])
 subplot(2,2,4)
-plot( times, qArr(:, 4))
-ylim([-1.1, 1.1])
+hold all
+plot( times, qMeasArr(:, 4))
+plot(times, qArr(:,4))
+%ylim([-1.1, 1.1])
 
 
 
-figure
-subplot(1,3,1)
-plot(times, wMeasArr(:,1))
-subplot(1,3,2)
-plot(times, wMeasArr(:,2))
-subplot(1,3,3)
-plot(times, wMeasArr(:,3))
-
-
-
-
+% figure
+% subplot(1,3,1)
+% plot(times, wMeasArr(:,1) - wArr(:,1))
+% subplot(1,3,2)
+% plot(times, wMeasArr(:,2) - wArr(:,2))
+% subplot(1,3,3)
+% plot(times, wMeasArr(:,3) - wArr(:,3))
 
 
 %% FUNCTIONS %%
