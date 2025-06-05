@@ -62,14 +62,6 @@ qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
                          theta3Noises(1));
 qInit = quat_mul(qInitError, qInit);
 
-% Initializes empty vectors to their final size. 
-% OLD
-% qArr = zeros(numRows(2), 4);
-% qMeasArr = zeros(numRows(2), 4);
-% 
-% wArr = zeros(numRows(2), 4);
-% wMeasArr = zeros(numRows(2),4);
-
 % NEW
 %% Initializes states. 
 % State definition: quaternions, omega, omega_bias. 
@@ -107,16 +99,19 @@ syms q1 q2 q3 q4 w1 w2 w3 T1 T2 T3 w1bias w2bias w3bias
 C13 = 2*(q1*q3 + q2*q4);
 C23 = 2*(q2*q3 + q1*q4);
 C33 = 1 - 2*(q1^2 + q2^2);
-fMatx = [0.5*(q2*w3 - q3*w2 + q4*w1);
-         0.5*(-q1*w3 + q3*w1 + q4*w2);
-         0.5*(q1*w2 - q2*w1 + q4*w3);
-         0.5*(-q1*w1 - q2*w2 -q3*w3);
-         1/J(1,1) * (3*meanMot^2 * (-J(2,2)*2*(q2*q3 + q1*q4)*(1 - 2*(q1^2 + q2^2)) + J(3,3)*(1 - 2*(q1^2 + q2^2))*2*(q2*q3 + q1*q4)) + T1 - (-J(2,2)*w1*w3 + J(3,3)*w3*w2));
-         1/J(2,2) * (3*meanMot^2 * (J(1,1)*2*(q1*q3 + q2*q4)*(1 - 2*(q1^2 + q2^2))) + J(3,3)*(2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T2 - (J(1,1)*w2*w3 - J(3,3)*w3*w1));
-         1/J(3,3) * (3*meanMot^2 * (-J(1,1)*2*(q1*q3 + q2*q4)*2*(q2*q3 + q1*q4) + J(2,2)*2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T3 - (-J(1,1)*w1*w2 + J(2,2)*w2*w1));
+fMatx = [0.5*(q2*(w3-w3bias) - q3*(w2-w2bias) + q4*(w1-w1bias));
+         0.5*(-q1*(w3-w3bias) + q3*(w1-w1bias) + q4*(w2-w2bias));
+         0.5*(q1*(w2-w2bias) - q2*(w1-w1bias) + q4*(w3-w3bias));
+         0.5*(-q1*(w1-w1bias) - q2*(w2-w2bias) -q3*(w3-w3bias));
+         1/J(1,1) * (3*meanMot^2 * (-J(2,2)*2*(q2*q3 + q1*q4)*(1 - 2*(q1^2 + q2^2)) + J(3,3)*(1 - 2*(q1^2 + q2^2))*2*(q2*q3 + q1*q4)) + T1 - (-J(2,2)*(w1-w1bias)*(w3-w3bias) + J(3,3)*(w3-w3bias)*(w2-w2bias)));
+         1/J(2,2) * (3*meanMot^2 * (J(1,1)*2*(q1*q3 + q2*q4)*(1 - 2*(q1^2 + q2^2))) + J(3,3)*(2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T2 - (J(1,1)*(w2-w2bias)*(w3-w3bias) - J(3,3)*(w3-w3bias)*(w1-w1bias)));
+         1/J(3,3) * (3*meanMot^2 * (-J(1,1)*2*(q1*q3 + q2*q4)*2*(q2*q3 + q1*q4) + J(2,2)*2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T3 - (-J(1,1)*(w1-w1bias)*(w2-w2bias) + J(2,2)*(w2-w2bias)*(w1-w1bias)));
          0; 0; 0];
+% Jacobian of f-matrix. 
 FMatx = jacobian(fMatx, [q1, q2, q3, q4, w1, w2, w3, ...
-    w1bias, w2bias, w3bias]);
+    w1bias, w2bias, w3bias]);               % 10x10
+disp(size(FMatx))
+% Creates function to 
 FMatxFunc = matlabFunction(FMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias});
 
@@ -134,24 +129,25 @@ HMatx = jacobian(hMatx, [q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias]);
 HMatxFunc = matlabFunction(HMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias});
+hMatxFunc = matlabFunction(hMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3});
 
 % Initial covariance matrix P. 
-Pk1k1 = 10*eye(10);
+Pk1k1 = 10*eye(10);                         % 10x10   
 
 % R matrix. 
 RMatx = diag([theta1Noise^2, theta2Noise^2, theta3Noise^2, ...
-          1e-6^2, 1e-6^2, 1e-6^2]);
+          1e-6^2, 1e-6^2, 1e-6^2]);         % 6x6
 
 %% Runs the controlled system. 
 for i = 2:numRows(2)
 
     %% Control logic. 
     % Updates control torque. 
-    qError = quat_error(statesMeasArr(i-1,1:4), qTarget);
+    qError = quat_error(statesArrEKF(i-1,1:4), qTarget);
      
-    t1 = -(K0 * (qError(1) ) + K1 * statesMeasArr(i-1,5));
-    t2 = -(K0 * (qError(2) ) + K2 * statesMeasArr(i-1,6));
-    t3 = -(K0 * (qError(3) ) + K3 * statesMeasArr(i-1,7));
+    t1 = -(K0 * (qError(1) ) + K1 * statesArrEKF(i-1,5));
+    t2 = -(K0 * (qError(2) ) + K2 * statesArrEKF(i-1,6));
+    t3 = -(K0 * (qError(3) ) + K3 * statesArrEKF(i-1,7));
 
     controlTorque = [t1, t2, t3];
 
@@ -164,7 +160,7 @@ for i = 2:numRows(2)
     % Normalizes quaternion vector. 
     statesArr(i,1:4) = statesArr(i,1:4)/norm(statesArr(i,1:4));
 
-    %% Adds noise to states. 
+    %% Adds noise and bias to states. 
     % Creates euler angle error values. 
     qNoise = eul_to_quat(theta1Noises(i), theta2Noises(i), ...
                          theta3Noises(i));
@@ -173,8 +169,16 @@ for i = 2:numRows(2)
     statesMeasArr(i,1:4) = statesMeasArr(i,1:4)/norm(statesMeasArr(i,1:4));
 
     % Adds bias to ideal omega. 
-    statesMeasArr(i,5:7) = statesArr(i,5:7) + wBias;    
-    
+    statesMeasArr(i,5:7) = statesArr(i,5:7) + wBias;
+
+    % Creates measurement array in same variables as measurements. 
+    % Thetas and omegas. 
+    measVec = zeros(1,6);
+    measVec(1:3) = quat_to_eul(statesArr(i, 1:4)) + [theta1Noises(i), ...
+        theta2Noises(i), theta3Noises(i)];
+    measVec(4:6) = statesMeasArr(i,5:7);
+
+    %% Kalman Filter Portion
     % F Matrix at point.
     FMatxNum = FMatxFunc(statesArr(i,1), statesArr(i,2), statesArr(i,3), ...
         statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7), ...
@@ -183,20 +187,24 @@ for i = 2:numRows(2)
         statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7), ...
         statesArr(i,8), statesArr(i,9), statesArr(i,10));
     % Psi matrix. Discretization of jacobian of f. 
-    PsiMatx = c2d(FMatxNum, G, timeStep);
+    PsiMatx = eye(10) + FMatxNum* timeStep; 
 
     % State prediction covariance. 
     Pk1k = PsiMatx*Pk1k1*PsiMatx';
-
-    % Kalman gain matrix. Should end up being 10x1. 
+    
+    % Kalman gain matrix.
     K = Pk1k*HMatxNum'*inv(HMatxNum*Pk1k*HMatxNum' + RMatx);
 
-    disp(size(K))
-
     % Kalman filtered state estimate. 
-    statesArrEKF(i,:) = statesArr(i,:) + K*(statesMeasArr(i,:) - ...
-        HMatxNum*statesArr(i,:)');
-    
+    % Predicted measurement. 
+    zPredicted = hMatxFunc(statesArr(i,1), statesArr(i,2), statesArr(i,3), ...
+        statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7));
+
+    statesArrEKF(i,:) = (statesArr(i,:)' + K*(measVec' - zPredicted))';
+    statesArrEKF(i, 1:4) = statesArrEKF(i, 1:4) / norm(statesArrEKF(i, 1:4));
+        
+    % Updates state covariance matrix. 
+    Pk1k1 = (eye(10) - K*HMatxNum)*Pk1k;
 
 end
 
@@ -208,35 +216,81 @@ disp(eulersFinal)
 figure
 subplot(2,2,1)
 hold all
-plot( times, statesMeasArr(:, 1))
-plot(times, statesArr(:,1))
-%ylim([-1.1, 1.1])
+plot( times, statesMeasArr(:, 1),"b")
+plot(times, statesArr(:,1), "r.-")
+plot(times, statesArrEKF(:,1), "g--")
+legend({"Measured q1.", "Ideal q1.", "EKF Predicted q1."})
+ylim([-0.1, 0.1])
 subplot(2,2,2)
 hold all
-plot( times, statesMeasArr(:, 2))
-plot(times, statesArr(:,2))
-%ylim([-1.1, 1.1])
+plot( times, statesMeasArr(:, 2), "b")
+plot(times, statesArr(:,2), "r.-")
+plot(times, statesArrEKF(:,2), "g--")
+legend({"Measured q2.", "Ideal q2.", "EKF Predicted q2."})
+ylim([-0.1, 0.1])
 subplot(2,2,3)
 hold all
-plot( times, statesMeasArr(:, 3))
-plot(times, statesArr(:,3))
-%ylim([-1.1, 1.1])
+plot( times, statesMeasArr(:, 3), "b")
+plot(times, statesArr(:,3), "r.-")
+plot(times, statesArrEKF(:,3), "g--")
+legend({"Measured q3.", "Ideal q3.", "EKF Predicted q3."})
+ylim([-0.1, 0.1])
 subplot(2,2,4)
 hold all
-plot( times, statesMeasArr(:, 4))
-plot(times, statesArr(:,4))
+plot( times, statesMeasArr(:, 4), "b")
+plot(times, statesArr(:,4), "r.-")
+plot(times, statesArrEKF(:,4), "g--")
+legend({"Measured q4.", "Ideal q4.", "EKF Predicted q4."})
+ylim([0.9, 1.1])
+
+figure
+subplot(3,1,1)
+hold all
+plot( times, statesMeasArr(:, 5),"b")
+plot(times, statesArr(:,5), "r.-")
+plot(times, statesArrEKF(:,5), "g--")
+legend({"Measured w1.", "Ideal w1.", "EKF Predicted w1."})
 %ylim([-1.1, 1.1])
+subplot(3,1,2)
+hold all
+plot( times, statesMeasArr(:, 6), "b")
+plot(times, statesArr(:,6), "r.-")
+plot(times, statesArrEKF(:,6), "g--")
+legend({"Measured w2.", "Ideal w2.", "EKF Predicted w2."})
+%ylim([-1.1, 1.1])
+subplot(3,1,3)
+hold all
+plot( times, statesMeasArr(:, 7), "b")
+plot(times, statesArr(:,7), "r.-")
+plot(times, statesArrEKF(:,7), "g--")
+legend({"Measured w3.", "Ideal w3.", "EKF Predicted w3."})
 
 
-
-
+figure
+subplot(3,1,1)
+hold all
+plot( times, statesMeasArr(:, 8),"b")
+plot(times, statesArr(:,8), "r.-")
+plot(times, statesArrEKF(:,8), "g--")
+legend({"Measured w1bias.", "Ideal w1bias.", "EKF Predicted w1bias."})
+%ylim([-1.1, 1.1])
+subplot(3,1,2)
+hold all
+plot( times, statesMeasArr(:, 9), "b")
+plot(times, statesArr(:,9), "r.-")
+plot(times, statesArrEKF(:,9), "g--")
+legend({"Measured w2bias.", "Ideal w2bias.", "EKF Predicted w2bias."})
+%ylim([-1.1, 1.1])
+subplot(3,1,3)
+hold all
+plot( times, statesMeasArr(:, 10), "b")
+plot(times, statesArr(:,10), "r.-")
+plot(times, statesArrEKF(:,10), "g--")
+legend({"Measured w3bias.", "Ideal w3bias.", "EKF Predicted w3bias."})
 
 
 
 %% FUNCTIONS %%
-
-
-
 
 % Verified. 
 % Mean motion of orbit with given semiMajor around body mu. 
