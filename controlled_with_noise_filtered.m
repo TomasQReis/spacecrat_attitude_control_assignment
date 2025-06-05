@@ -91,26 +91,23 @@ K = 6.8;
 K1 = K; K2 = K; K3 = K;
 
 %% Filtering. 
-P00 = eye(7);
-R = diag([1,1,1,1,0,0,0]);
-
 % system behavior vector and jacobian matrix. f(x,u) to F(x,u):
 syms q1 q2 q3 q4 w1 w2 w3 T1 T2 T3 w1bias w2bias w3bias
 C13 = 2*(q1*q3 + q2*q4);
 C23 = 2*(q2*q3 + q1*q4);
 C33 = 1 - 2*(q1^2 + q2^2);
-fMatx = [0.5*(q2*(w3-w3bias) - q3*(w2-w2bias) + q4*(w1-w1bias));
-         0.5*(-q1*(w3-w3bias) + q3*(w1-w1bias) + q4*(w2-w2bias));
-         0.5*(q1*(w2-w2bias) - q2*(w1-w1bias) + q4*(w3-w3bias));
-         0.5*(-q1*(w1-w1bias) - q2*(w2-w2bias) -q3*(w3-w3bias));
-         1/J(1,1) * (3*meanMot^2 * (-J(2,2)*2*(q2*q3 + q1*q4)*(1 - 2*(q1^2 + q2^2)) + J(3,3)*(1 - 2*(q1^2 + q2^2))*2*(q2*q3 + q1*q4)) + T1 - (-J(2,2)*(w1-w1bias)*(w3-w3bias) + J(3,3)*(w3-w3bias)*(w2-w2bias)));
-         1/J(2,2) * (3*meanMot^2 * (J(1,1)*2*(q1*q3 + q2*q4)*(1 - 2*(q1^2 + q2^2))) + J(3,3)*(2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T2 - (J(1,1)*(w2-w2bias)*(w3-w3bias) - J(3,3)*(w3-w3bias)*(w1-w1bias)));
-         1/J(3,3) * (3*meanMot^2 * (-J(1,1)*2*(q1*q3 + q2*q4)*2*(q2*q3 + q1*q4) + J(2,2)*2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T3 - (-J(1,1)*(w1-w1bias)*(w2-w2bias) + J(2,2)*(w2-w2bias)*(w1-w1bias)));
+fMatx = [0.5*(q2*w3 - q3*(w2) + q4*(w1));
+         0.5*(-q1*(w3) + q3*(w1) + q4*(w2));
+         0.5*(q1*(w2) - q2*(w1) + q4*(w3));
+         0.5*(-q1*(w1) - q2*(w2) -q3*(w3));
+         1/J(1,1) * (3*meanMot^2 * (-J(2,2)*2*(q2*q3 + q1*q4)*(1 - 2*(q1^2 + q2^2)) + J(3,3)*(1 - 2*(q1^2 + q2^2))*2*(q2*q3 + q1*q4)) + T1 - (-J(2,2)*(w1)*(w3) + J(3,3)*(w3)*(w2)));
+         1/J(2,2) * (3*meanMot^2 * (J(1,1)*2*(q1*q3 + q2*q4)*(1 - 2*(q1^2 + q2^2))) + J(3,3)*(2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T2 - (J(1,1)*(w2)*(w3) - J(3,3)*(w3)*(w1)));
+         1/J(3,3) * (3*meanMot^2 * (-J(1,1)*2*(q1*q3 + q2*q4)*2*(q2*q3 + q1*q4) + J(2,2)*2*(q2*q3 + q1*q4)*2*(q1*q3 + q2*q4)) + T3 - (-J(1,1)*(w1)*(w2) + J(2,2)*(w2)*(w1)));
          0; 0; 0];
 % Jacobian of f-matrix. 
 FMatx = jacobian(fMatx, [q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias]);               % 10x10
-disp(size(FMatx))
+
 % Creates function to 
 FMatxFunc = matlabFunction(FMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias});
@@ -124,12 +121,13 @@ G = zeros(10,1);
 hMatx = [atan(2*(q4*q1 + q2*q3) / 1-2*(q1^2 + q2^2));
          asin(2*(q2*q4 - q1*q3));
          atan(2*(q1*q2 + q3*q4) / 1-2*(q2^2 + q3^2));
-         w1; w2; w3];
+         w1+w1bias; w2+w2bias; w3+w3bias];
 HMatx = jacobian(hMatx, [q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias]);
 HMatxFunc = matlabFunction(HMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
     w1bias, w2bias, w3bias});
-hMatxFunc = matlabFunction(hMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3});
+hMatxFunc = matlabFunction(hMatx, 'Vars', {q1, q2, q3, q4, w1, w2, w3, ...
+    w1bias, w2bias, w3bias});
 
 % Initial covariance matrix P. 
 Pk1k1 = 10*eye(10);                         % 10x10   
@@ -151,7 +149,7 @@ for i = 2:numRows(2)
 
     controlTorque = [t1, t2, t3];
 
-    %% Initial state prediction. 
+    %% Real state evolution. 
     statesDotArr(i,1:4) = q_dot(statesArr(i-1,5:7), statesArr(i-1,1:4));
     statesDotArr(i,5:7) = w_dot(J, meanMot, statesArr(i-1,1:4), ...
                                 statesArr(i-1,5:7), controlTorque);
@@ -159,7 +157,7 @@ for i = 2:numRows(2)
     statesArr(i,:) = statesArr(i-1,:) + timeStep * statesDotArr(i,:);
     % Normalizes quaternion vector. 
     statesArr(i,1:4) = statesArr(i,1:4)/norm(statesArr(i,1:4));
-
+    
     %% Adds noise and bias to states. 
     % Creates euler angle error values. 
     qNoise = eul_to_quat(theta1Noises(i), theta2Noises(i), ...
@@ -187,18 +185,20 @@ for i = 2:numRows(2)
         statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7), ...
         statesArr(i,8), statesArr(i,9), statesArr(i,10));
     % Psi matrix. Discretization of jacobian of f. 
-    PsiMatx = eye(10) + FMatxNum* timeStep; 
+    PhiMatx = eye(10) + FMatxNum* timeStep; 
 
     % State prediction covariance. 
-    Pk1k = PsiMatx*Pk1k1*PsiMatx';
+    Pk1k = PhiMatx*Pk1k1*PhiMatx' + ;
     
     % Kalman gain matrix.
     K = Pk1k*HMatxNum'*inv(HMatxNum*Pk1k*HMatxNum' + RMatx);
 
     % Kalman filtered state estimate. 
     % Predicted measurement. 
-    zPredicted = hMatxFunc(statesArr(i,1), statesArr(i,2), statesArr(i,3), ...
-        statesArr(i,4), statesArr(i,5), statesArr(i,6), statesArr(i,7));
+    zPredicted = hMatxFunc(statesMeasArr(i,1), statesMeasArr(i,2), statesMeasArr(i,3), ...
+        statesMeasArr(i,4), statesMeasArr(i,5) , statesMeasArr(i,6), ...
+        statesMeasArr(i,7), statesMeasArr(i,8), statesMeasArr(i,9) , ...
+        statesMeasArr(i,10));
 
     statesArrEKF(i,:) = (statesArr(i,:)' + K*(measVec' - zPredicted))';
     statesArrEKF(i, 1:4) = statesArrEKF(i, 1:4) / norm(statesArrEKF(i, 1:4));
@@ -273,19 +273,20 @@ plot( times, statesMeasArr(:, 8),"b")
 plot(times, statesArr(:,8), "r.-")
 plot(times, statesArrEKF(:,8), "g--")
 legend({"Measured w1bias.", "Ideal w1bias.", "EKF Predicted w1bias."})
-%ylim([-1.1, 1.1])
+ylim([-0.005, 0.005])
 subplot(3,1,2)
 hold all
 plot( times, statesMeasArr(:, 9), "b")
 plot(times, statesArr(:,9), "r.-")
 plot(times, statesArrEKF(:,9), "g--")
 legend({"Measured w2bias.", "Ideal w2bias.", "EKF Predicted w2bias."})
-%ylim([-1.1, 1.1])
+ylim([-0.005, 0.005])
 subplot(3,1,3)
 hold all
 plot( times, statesMeasArr(:, 10), "b")
 plot(times, statesArr(:,10), "r.-")
 plot(times, statesArrEKF(:,10), "g--")
+ylim([-0.005, 0.005])
 legend({"Measured w3bias.", "Ideal w3bias.", "EKF Predicted w3bias."})
 
 
