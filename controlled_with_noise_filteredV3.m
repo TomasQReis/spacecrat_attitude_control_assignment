@@ -82,7 +82,7 @@ w = ((2 *Q.' *qDot.') + wOrbital.').';
 wDot = w_dot(J, meanMot, qInit, w, [0,0,0], [0,0,0]);
 
 %% Initial Measurements. 
-% Creates initial error quaternion and applies. 
+% Creates initial error quaternion and applies.
 qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
                          theta3Noises(1));
 qInitMeasure = quat_mul(qInitError, qInit);
@@ -91,11 +91,14 @@ qInitMeasure = quat_mul(qInitError, qInit);
 wInitMeasure = w(1:3) + wBias;
 
 %% State array initialization. 
+% Pre-allocates saved values.
 realX = zeros(numRows(2), 10);            % Real states. 
 realE = zeros(numRows(2), 3);                   % Real Euler Angles. 
 measuredZ = zeros(numRows(2), 6);        % Measured states. 
 measuredQ = zeros(numRows(2), 4);
 filteredX = zeros(numRows(2), 10);        % Estimated states.
+
+torques = zeros(numRows(2),3);
 
 predictedXArr = zeros(numRows(2),10);       % Predicted states. 
 
@@ -130,12 +133,15 @@ RMatx = diag([theta1Noise^2, theta2Noise^2, theta3Noise^2,...
 G = eye(10,10);
 QMatx = 1.5e-6^2 * eye(10);
 
-
 % Initial covariance matrix P. 
 Pk1k1 = 1*eye(10);
 
 for i = 1:numRows(2)-1
     %% Control logic. 
+    % Change inputs between realX, measuredZ and measuredQ and filteredX 
+    % for the different controller types. I had separate files but they are
+    % now broken for some reason...
+
     % Updates control torque. 
     qError = quat_error(realX(i,1:4), qTarget);
      
@@ -144,6 +150,7 @@ for i = 1:numRows(2)-1
     t3 = -(K0 * (qError(3) ) + K3 * realX(i,7));
 
     controlTorque = [t1, t2, t3];
+    torques(i,:) = controlTorque;
 
     %% Real state evolution.
     q1 = realX(i,1); q2 = realX(i,2); q3 = realX(i,3); q4 = realX(i,4);
@@ -154,7 +161,6 @@ for i = 1:numRows(2)-1
     realE(i+1,:) = quat_to_eul(realX(i+1,1:4));
 
     %% Update measured values. 
-    
     measuredZ(i+1,1:3) = realE(i+1,:) + thetaNoise(i+1,:);
     measuredZ(i+1,4:6) = realX(i,5:7) + wBias;
 
@@ -165,7 +171,6 @@ for i = 1:numRows(2)-1
     w1 = filteredX(i,5); w2 = filteredX(i,6); w3 = filteredX(i,7);
     w1bias = filteredX(i,8); w2bias = filteredX(i,9); w3bias = filteredX(i,10);
     
-
     predictedX = filteredX(i,:) + timeStep * fFunc(q1, q2, q3, q4, ...
         w1, w2, w3, t1, t2, t3, w1bias, w2bias, w3bias)';
     predictedX(1:4) = predictedX(1:4) / norm(predictedX(1:4));
@@ -205,68 +210,72 @@ for i = 1:numRows(2)-1
 end
 
 
+%% PLOTTING FOR THETA AND TORQUE.
+target = zeros(size(times));
+figure 
+fontsize(scale=1.5)
+subplot(3,1,1)
+hold on
+plot(times, realE(:,1), "b")
+plot(times, target, "--r")
+legend("Real theta1.", "Target theta1.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
+subplot(3,1,2)
+hold on
+plot(times, realE(:,2), "b")
+plot(times, target, "--r")
+legend("Real theta2.", "Target theta2.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
+subplot(3,1,3)
+hold on
+plot(times, realE(:,3), "b")
+plot(times, target, "--r")
+legend("Real theta3.", "Target theta3.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
+
 figure
-subplot(2,2,1)
-hold all
-plot( times, realX(:, 1),"b")
-plot( times, measuredQ(:, 1),"r--")
-plot( times, filteredX(:, 1), "g.-")
-legend({"Real q1.", "Measured q1.", "Predicted q1."})
-%ylim([-0.1, 0.1])
-subplot(2,2,2)
-hold all
-plot( times, realX(:, 2), "b")
-plot( times, measuredQ(:, 2),"r--")
-plot( times, filteredX(:, 2), "g.-")
-legend({"Real q2.", "Measured q2.", "Predicted q2."})
-%ylim([-0.1, 0.1])
-subplot(2,2,3)
-hold all
-plot( times, realX(:, 3), "b")
-plot( times, measuredQ(:, 3),"r--")
-plot( times, filteredX(:, 3), "g.-")
-legend({"Real q3.", "Measured q3.", "Predicted q3."})
-%ylim([-0.1, 0.1])
-subplot(2,2,4)
-hold all
-plot( times, realX(:, 4), "b")
-plot( times, measuredQ(:, 4),"r--")
-plot( times, filteredX(:, 4), "g.-")
-legend({"Real q4.", "Measured q4.", "Predicted q4."})
-%ylim([0.9, 1.1])
+subplot(3,1,1)
+hold on
+plot(times, torques(:,1), "b")
+ylabel("Torque T_1 [Nm].")
+xlabel("Time from start [s]")
+subplot(3,1,2)
+hold on
+plot(times, torques(:,2), "b")
+ylabel("Torque T_2 [Nm].")
+xlabel("Time from start [s]")
+subplot(3,1,3)
+hold on
+plot(times, torques(:,3), "b")
+ylabel("Torque T_3 [Nm].")
+xlabel("Time from start [s]")
 
-
+%% PLOTTING FOR BIAS ESTIMATE
 figure
 subplot(3,1,1)
 hold all
 plot(times, filteredX(:,8), "b")
 plot(times, measuredZ(:,4), "--r")
-legend("Estimated omega1 bias.", "Measured omega1 bias.")
+legend("Estimated omega1 bias.", "Measured omega1.")
+xlabel("Time from start [s]")
+ylabel("[rad/s]")
+
 subplot(3,1,2)
 hold all
 plot(times, filteredX(:,9), "b")
 plot(times, measuredZ(:,5), "--r")
-legend("Estimated omega2 bias.", "Measured omega2 bias.")
+legend("Estimated omega2 bias.", "Measured omega2.")
+xlabel("Time from start [s]")
+ylabel("[rad/s]")
+
 subplot(3,1,3)
 hold all
 plot(times, filteredX(:,10), "b")
 plot(times, measuredZ(:,6), "--r")
-legend("Estimated omega3 bias.", "Measured omega3 bias.")
+legend("Estimated omega3 bias.", "Measured omega3.")
+xlabel("Time from start [s]")
+ylabel("[rad/s]")
 
-
-% figure
-% subplot(3,1,1)
-% hold all
-% plot(times, realE(:,1), "b")
-% plot(times, measuredZ(:,1), "--r")
-% legend("Real theta1.", "Measured theta1.")
-% subplot(3,1,2)
-% hold all
-% plot(times, realE(:,2), "b")
-% plot(times, measuredZ(:,2), "--r")
-% legend("Real theta2.", "Measured theta2.")
-% subplot(3,1,3)
-% hold all
-% plot(times, realE(:,3), "b")
-% plot(times, measuredZ(:,3), "--r")
-% legend("Real theta3.", "Measured theta3.")

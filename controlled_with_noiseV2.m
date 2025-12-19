@@ -94,6 +94,8 @@ measuredZ = zeros(numRows(2), 6);        % Measured states.
 measuredQ = zeros(numRows(2), 4);
 filteredX = zeros(numRows(2), 7);        % Estimated states.
 
+torques = zeros(numRows(2),3);
+
 realX(1,1:4) = qInit;
 realE(1,:) = [theta1, theta2, theta3];
 
@@ -118,13 +120,14 @@ K1 = K; K2 = K; K3 = K;
 for i = 1:numRows(2)-1
     %% Control logic. 
     % Updates control torque. 
-    qError = quat_error(measuredQ(i,:), qTarget);
+    qError = quat_error(realX(i,1:4), qTarget);
      
-    t1 = -(K0 * (qError(1) ) + K1 * measuredZ(i,4));
-    t2 = -(K0 * (qError(2) ) + K2 * measuredZ(i,5));
-    t3 = -(K0 * (qError(3) ) + K3 * measuredZ(i,6));
+    t1 = -(K0 * (qError(1) ) + K1 * w(1));
+    t2 = -(K0 * (qError(2) ) + K2 * w(2));
+    t3 = -(K0 * (qError(3) ) + K3 * w(3));
 
     controlTorque = [t1, t2, t3];
+    torques(i,:) = controlTorque;
 
     %% Real state evolution.
     q1 = realX(i,1); q2 = realX(i,2); q3 = realX(i,3); q4 = realX(i,4);
@@ -151,46 +154,69 @@ end
 
 
 
-figure
-subplot(2,2,1)
-hold all
-plot( times, realX(:, 1),"b")
-plot( times, measuredQ(:, 1),"r--")
-legend({"Real q1.", "Measured q1."})
-%ylim([-0.1, 0.1])
-subplot(2,2,2)
-hold all
-plot( times, realX(:, 2), "b")
-plot( times, measuredQ(:, 2),"r--")
-legend({"Real q2.", "Measured q2."})
-%ylim([-0.1, 0.1])
-subplot(2,2,3)
-hold all
-plot( times, realX(:, 3), "b")
-plot( times, measuredQ(:, 3),"r--")
-legend({"Real q3.", "Measured q3."})
-%ylim([-0.1, 0.1])
-subplot(2,2,4)
-hold all
-plot( times, realX(:, 4), "b")
-plot( times, measuredQ(:, 4),"r--")
-legend({"Real q4.", "Measured q4."})
-%ylim([0.9, 1.1])
+% figure
+% subplot(2,2,1)
+% hold all
+% plot( times, realX(:, 1),"b")
+% plot( times, measuredQ(:, 1),"r--")
+% legend({"Real q1.", "Measured q1."})
+% %ylim([-0.1, 0.1])
+% subplot(2,2,2)
+% hold all
+% plot( times, realX(:, 2), "b")
+% plot( times, measuredQ(:, 2),"r--")
+% legend({"Real q2.", "Measured q2."})
+% %ylim([-0.1, 0.1])
+% subplot(2,2,3)
+% hold all
+% plot( times, realX(:, 3), "b")
+% plot( times, measuredQ(:, 3),"r--")
+% legend({"Real q3.", "Measured q3."})
+% %ylim([-0.1, 0.1])
+% subplot(2,2,4)
+% hold all
+% plot( times, realX(:, 4), "b")
+% plot( times, measuredQ(:, 4),"r--")
+% legend({"Real q4.", "Measured q4."})
+% %ylim([0.9, 1.1])
 
+target = zeros(numRows(2));
+figure
+subplot(3,1,1)
+hold on
+plot(times, realE(:,1), "b")
+plot(times, target, "--r")
+legend("Real theta1.", "Target theta1.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
+subplot(3,1,2)
+hold on
+plot(times, realE(:,2), "b")
+plot(times, target, "--r")
+legend("Real theta2.", "Target theta2.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
+subplot(3,1,3)
+hold on
+plot(times, realE(:,3), "b")
+plot(times, target, "--r")
+legend("Real theta3.", "Target theta3.")
+ylabel("Angle [rad]")
+xlabel("Time from start [s]")
 
 figure
 subplot(3,1,1)
-hold all
-plot(times, realE(:,1), "b")
-plot(times, measuredZ(:,1), "--r")
-legend("Real theta1.", "Measured theta1.")
+hold on
+plot(times, torques(:,1), "b")
+ylabel("Torque T_1 [Nm].")
+xlabel("Time from start [s]")
 subplot(3,1,2)
-hold all
-plot(times, realE(:,2), "b")
-plot(times, measuredZ(:,2), "--r")
-legend("Real theta2.", "Measured theta2.")
+hold on
+plot(times, torques(:,2), "b")
+ylabel("Torque T_2 [Nm].")
+xlabel("Time from start [s]")
 subplot(3,1,3)
-hold all
-plot(times, realE(:,3), "b")
-plot(times, measuredZ(:,3), "--r")
-legend("Real theta3.", "Measured theta3.")
+hold on
+plot(times, torques(:,3), "b")
+ylabel("Torque T_3 [Nm].")
+xlabel("Time from start [s]")

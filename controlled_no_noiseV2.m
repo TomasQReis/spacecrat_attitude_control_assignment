@@ -113,10 +113,6 @@ K0 = 1.6;
 K = 5.6;
 K1 = K; K2 = K; K3 = K;
 
-%% Filter Initialization. 
-
-
-
 for i = 1:numRows(2)-1
     %% Control logic. 
     % Updates control torque. 
@@ -157,42 +153,42 @@ figure
 subplot(2,2,1)
 hold all
 plot( times, realX(:, 1),"b")
-plot( times, measuredQ(:, 1),"r--")
-legend({"Real q1.", "Measured q1."})
+%plot( times, measuredQ(:, 1),"r--")
+legend({"Real q1."})
 %ylim([-0.1, 0.1])
 subplot(2,2,2)
 hold all
 plot( times, realX(:, 2), "b")
-plot( times, measuredQ(:, 2),"r--")
-legend({"Real q2.", "Measured q2."})
+%plot( times, measuredQ(:, 2),"r--")
+legend({"Real q2."})
 %ylim([-0.1, 0.1])
 subplot(2,2,3)
 hold all
 plot( times, realX(:, 3), "b")
-plot( times, measuredQ(:, 3),"r--")
-legend({"Real q3.", "Measured q3."})
+%plot( times, measuredQ(:, 3),"r--")
+legend({"Real q3."})
 %ylim([-0.1, 0.1])
 subplot(2,2,4)
 hold all
 plot( times, realX(:, 4), "b")
-plot( times, measuredQ(:, 4),"r--")
-legend({"Real q4.", "Measured q4."})
+%plot( times, measuredQ(:, 4),"r--")
+legend({"Real q4."})
 %ylim([0.9, 1.1])
 
-
+target = zeros(numRows(2));
 figure
 subplot(3,1,1)
 hold all
 plot(times, realE(:,1), "b")
-plot(times, measuredZ(:,1), "--r")
-legend("Real theta1.", "Measured theta1.")
+plot(times, target, "--r")
+legend("Real theta1.", "Target theta1.")
 subplot(3,1,2)
 hold all
 plot(times, realE(:,2), "b")
-plot(times, measuredZ(:,2), "--r")
-legend("Real theta2.", "Measured theta2.")
+plot(times, target, "--r")
+legend("Real theta2.", "Target theta2.")
 subplot(3,1,3)
 hold all
 plot(times, realE(:,3), "b")
-plot(times, measuredZ(:,3), "--r")
-legend("Real theta3.", "Measured theta3.")
+plot(times, target, "--r")
+legend("Real theta3.", "Target theta3.")
