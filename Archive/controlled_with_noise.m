@@ -1,0 +1,267 @@
+%% Initializes
+clear all;
+close all;
+
+%% Environment
+mu = 3.986004418e5;     % km^3/s^-2
+semiMajor = 700 + 6378; % km
+
+timeStep = 0.1;         % Seconds
+timeFinal = 1000;       % Seconds
+
+meanMot = mean_mot(mu, semiMajor);
+J = [124.531, 0, 0;
+     0, 124.586, 0;
+     0, 0, 0.704];
+
+times = 0:timeStep:timeFinal;
+numRows = size(times);
+
+%% Error values. 
+% Euler angle std deviations.  
+theta1Noise = 0.1*pi/180; theta2Noise = 0.1*pi/180; 
+theta3Noise = 0.1*pi/180;
+
+theta1Noises = theta1Noise * randn(numRows(2),1);
+theta2Noises = theta2Noise * randn(numRows(2),1);
+theta3Noises = theta3Noise * randn(numRows(2),1);
+
+% Angular velocity bias. 
+wBias = [0.1, -0.1, 0.15, 0] * pi/180;
+
+%% Initial Conditions %% 
+% Initial euler angles. 
+theta1 = 5*pi/180; theta2 = 5*pi/180; theta3 = 5*pi/180;
+
+% Creates angular velocity vector of LVLH frame wrt inertial (J2000).
+% Defined within Body frame. 
+wOrbital = - meanMot * [...
+    cos(theta2)*sin(theta3),...
+    sin(theta1)*sin(theta2)*sin(theta3) + cos(theta1)*cos(theta3), ... 
+    cos(theta1)*sin(theta2)*sin(theta3) - sin(theta1)*cos(theta3), ...
+    0];
+
+% Assumes initial qDot=0. 
+qDot = [0, 0, 0, 0];
+% Converts initial euler attitude angles to quaternion. 
+qInit = eul_to_quat(theta1, theta2, theta3);
+
+% Obtains initial omega vector. 
+Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
+     qInit(3), qInit(4), -qInit(1), qInit(2);
+     -qInit(2), -qInit(1), qInit(4), qInit(3);
+     -qInit(1), -qInit(2), -qInit(3), qInit(4)];
+
+wInit = ((2 *Q.' *qDot.') + wOrbital.').';
+wDotInit = w_dot(J, meanMot, qInit, wInit, [0,0,0]).';
+
+% Creates initial error quaternion and applies. 
+qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
+                         theta3Noises(1));
+qInit = quat_mul(qInitError, qInit);
+
+% Initializes empty vectors to their final size. 
+qArr = zeros(numRows(2), 4);
+qMeasArr = zeros(numRows(2), 4);
+
+wArr = zeros(numRows(2), 4);
+wMeasArr = zeros(numRows(2),4);
+wDotArr = zeros(numRows(2),4);
+
+wDotArr(1,:) = wDotInit;
+
+%% Controller Values. 
+% Initializes target quaternion. 
+qTarget = eul_to_quat(0, 0, 0);
+
+% Defines controller gains. 
+K0 = 1.9;
+K = 6.8;
+K1 = K; K2 = K; K3 = K;
+
+for i = 1:numRows(2)-1
+
+    % Updates control torque. 
+    qError = quat_error(qMeasArr(i,:), qTarget);
+    
+    % The constant value are the offset when no addition is made to the
+    % error check. The right way to do this? Probably not. But offset is 
+    % pretty much gone. 
+    t1 = -(K0 * (qError(1) ) + K1 * wMeasArr(i,1));
+    t2 = -(K0 * (qError(2) ) + K2 * wMeasArr(i,2));
+    t3 = -(K0 * (qError(3) ) + K3 * wMeasArr(i,3));
+
+    controlTorque = [t1, t2, t3];
+    
+    %% Updates states. 
+    wArr(i+1,:) = (wArr(i,:) + timeStep*wDotArr(i,:));
+    wDotArr(i+1,:) = w_dot(J, meanMot, qArr(i+1,:), wArr(i+1,:),...
+                           controlTorque);
+    qDot = q_dot(wArr(i+1,:), qArr(i,:));
+    qArr(i+1,:) = (qArr(i,:) + (timeStep*qDot).'); 
+    qArr(i+1,:) = qArr(i+1,:)/norm(qArr(i+1,:)); 
+
+    %% Adds biases and noise. 
+    % Adds bias to ideal omega. 
+    wMeasArr(i+1,:) = wArr(i+1,:) + wBias;
+
+    % Creates euler angle error values. 
+    qNoise = eul_to_quat(theta1Noises(i+1), theta2Noises(i+1), ...
+                         theta3Noises(i+1));
+
+    % Adds noise to the updated quaternion value. 
+    qMeasArr(i+1,:) = quat_mul(qNoise, qArr(i+1,:));
+    qMeasArr(i+1,:) = qMeasArr(i+1,:)/norm(qArr(i+1,:));
+
+    
+
+end
+
+qFinal = qArr(end, :);
+eulersFinal = quat_to_eul(qFinal) * 180/pi;
+disp(eulersFinal)
+
+figure
+subplot(2,2,1)
+hold all
+plot( times, qMeasArr(:, 1))
+plot(times, qArr(:,1))
+%ylim([-1.1, 1.1])
+subplot(2,2,2)
+hold all
+plot( times, qMeasArr(:, 2))
+plot(times, qArr(:,2))
+%ylim([-1.1, 1.1])
+subplot(2,2,3)
+hold all
+plot( times, qMeasArr(:, 3))
+plot(times, qArr(:,3))
+%ylim([-1.1, 1.1])
+subplot(2,2,4)
+hold all
+plot( times, qMeasArr(:, 4))
+plot(times, qArr(:,4))
+%ylim([-1.1, 1.1])
+
+
+
+% figure
+% subplot(1,3,1)
+% plot(times, wMeasArr(:,1) - wArr(:,1))
+% subplot(1,3,2)
+% plot(times, wMeasArr(:,2) - wArr(:,2))
+% subplot(1,3,3)
+% plot(times, wMeasArr(:,3) - wArr(:,3))
+
+
+%% FUNCTIONS %%
+% Verified. 
+% Mean motion of orbit with given semiMajor around body mu. 
+function meanMot = mean_mot(mu, semiMajor)
+    meanMot = sqrt(mu / semiMajor^3);
+end
+
+% Verified. 
+% Quaternion matrix error function. 
+% Follows the notation where q_4 is the real part of the quaternion. 
+function quatError = quat_error(quatCurrent, quatTarget)
+    intermMatrix = [quatTarget(4), quatTarget(3), -quatTarget(2), -quatTarget(1);
+                    -quatTarget(3), quatTarget(4), quatTarget(1), -quatTarget(2);
+                    quatTarget(2), -quatTarget(1), quatTarget(4), -quatTarget(3);
+                    quatTarget(1), quatTarget(2), quatTarget(3), quatTarget(4)];
+    quatError = (intermMatrix * quatCurrent.').';
+end
+
+% Verified. 
+% Quaternion matrix multiplication function. 
+% Follows the notation where q_4 is the real part of the quaternion. 
+function qMul = quat_mul(q1, q2)
+    % quat_mul.
+    %   Returns the quaternion product q = q1 ∘ q2,
+    %   where each input is a 4-element row [qx, qy, qz, q0], and the output
+    %   is in the same format.
+    intermMatrix = [q2(4), q2(3), -q2(2), q2(1);
+                    -q2(3), q2(4), q2(1), q2(2);
+                    q2(2), -q2(1), q2(4), q2(3);
+                    -q2(1), -q2(2), -q2(3), q2(4)];
+    qMul = (intermMatrix * q1.').';
+end
+
+% Verified. 
+% Euler to quaternion transformation. 
+function quat = eul_to_quat(theta1, theta2, theta3)
+
+    % Precompute half-angles. 
+    t1 = theta1/2;
+    t2 = theta2/2;
+    t3 = theta3/2;
+
+    % sines and cosines of half-angles. 
+    c1 = cos(t1);  s1 = sin(t1);
+    c2 = cos(t2);  s2 = sin(t2);
+    c3 = cos(t3);  s3 = sin(t3);
+
+    % Quaternion components. 
+    q1 =  s1*c2*c3  -  c1*s2*s3;
+    q2 =  c1*s2*c3  +  s1*c2*s3;
+    q3 =  c1*c2*s3  -  s1*s2*c3;
+    q4 =  c1*c2*c3  +  s1*s2*s3;
+
+    % Pack into a row-vector. 
+    quat = [q1, q2, q3, q4];
+end
+
+% Verified
+% Quaternion to Euler-angle transformation. 
+function thetas = quat_to_eul(qs)
+    % Initialize Euler angles array. 
+    thetas = zeros(size(qs(:,1:3)));
+
+    % separate components. 
+    q1=qs(:,1); q2=qs(:,2); q3=qs(:,3); q4=qs(:,4);
+
+    % Calculate relevant cosine matrix elements. 
+    c11 = 1 - 2*(q2^2 + q3^2);
+    c12 = 2 * (q1*q2 + q3*q4);
+    c13 = 2 * (q1*q3 - q2*q4);
+    c23 = 2 * (q2*q3 + q1*q4);
+    c33 = 1 - 2*(q1^2 + q2^2);
+
+    % Calculate Euler angles. 
+    thetas(:,1) = atan2(c23, c33);
+    thetas(:,2) = -asin(c13);
+    thetas(:,3) = atan2(c12, c11);
+end
+
+% Verified
+% Outputs angular velocity change vector. 
+function wDot = w_dot(J, meanMot, q, w, controlTorque)
+    % Defines cosine matrix elements via quaternion elems.
+    C13 = 2*(q(1)*q(3) + q(2)*q(4));
+    C23 = 2*(q(2)*q(3) + q(1)*q(4));
+    C33 = 1 - 2*(q(1)^2 + q(2)^2);
+   
+    % Defines intermediate matrices. 
+    C = [0, -C33, C23;
+        C33, 0, -C13;
+        -C23, C13, 0];
+    W = [0, -w(3), w(2);
+         w(3), 0, -w(1);
+         -w(2), w(1), 0];
+
+    leftSide = 3*meanMot^2*C*J*[C13;C23;33];
+    rightSide = [0.001; 0.001; 0.001] - W*J*w(1:3).';
+
+    wDot = [inv(J)*((leftSide + rightSide + controlTorque.')); 0];
+end
+
+% Outputs q_dot matrix. 
+function qDot = q_dot(w, q)
+
+    omegaMatrix = [0, w(3), -w(2), w(1);
+                   -w(3), 0, w(1), w(2);
+                   w(2), -w(1), 0, w(3);
+                   -w(1), -w(2), -w(3), 0];
+
+    qDot = 0.5 * omegaMatrix * q.';
+end
