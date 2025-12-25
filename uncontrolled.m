@@ -1,5 +1,5 @@
 %% Initializes
-clear all;
+clear ;
 close all;
 
 %% Environment

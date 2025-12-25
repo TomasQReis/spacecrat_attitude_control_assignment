@@ -1,5 +1,5 @@
 %% Initializes
-clear all;
+clear;
 close all;
 
 %% Environment
@@ -198,8 +198,6 @@ for i = 1:numRows(2)-1
     C = RMatx;
     K = Pk1k*HMatxNum.' / (B + C);
 
-    
-
     % Filtered best estimate state. 
     filteredX(i+1,:) = (predictedX.' + K*(measuredZ(i+1,:).' - zPredicted)).';
     filteredX(i+1, 1:4) = filteredX(i+1, 1:4) / norm(filteredX(i+1, 1:4));
@@ -256,7 +254,7 @@ xlabel("Time from start [s]")
 %% PLOTTING FOR BIAS ESTIMATE
 figure
 subplot(3,1,1)
-hold all
+hold on
 plot(times, filteredX(:,8), "b")
 plot(times, measuredZ(:,4), "--r")
 legend("Estimated omega1 bias.", "Measured omega1.")
@@ -264,7 +262,7 @@ xlabel("Time from start [s]")
 ylabel("[rad/s]")
 
 subplot(3,1,2)
-hold all
+hold on
 plot(times, filteredX(:,9), "b")
 plot(times, measuredZ(:,5), "--r")
 legend("Estimated omega2 bias.", "Measured omega2.")
@@ -272,7 +270,7 @@ xlabel("Time from start [s]")
 ylabel("[rad/s]")
 
 subplot(3,1,3)
-hold all
+hold on
 plot(times, filteredX(:,10), "b")
 plot(times, measuredZ(:,6), "--r")
 legend("Estimated omega3 bias.", "Measured omega3.")

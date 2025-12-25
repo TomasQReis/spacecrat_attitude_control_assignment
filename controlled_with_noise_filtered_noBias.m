@@ -1,6 +1,6 @@
 %% Initializes
 clc
-clear all;
+clear;
 close all;
 
 %% Environment
@@ -209,28 +209,28 @@ end
 
 figure
 subplot(2,2,1)
-hold all
+hold on
 plot( times, realX(:, 1),"b")
 plot( times, measuredQ(:, 1),"r--")
 plot( times, filteredX(:, 1), "g.-")
 legend({"Real q1.", "Measured q1.", "Predicted q1."})
 %ylim([-0.1, 0.1])
 subplot(2,2,2)
-hold all
+hold on
 plot( times, realX(:, 2), "b")
 plot( times, measuredQ(:, 2),"r--")
 plot( times, filteredX(:, 2), "g.-")
 legend({"Real q2.", "Measured q2.", "Predicted q2."})
 %ylim([-0.1, 0.1])
 subplot(2,2,3)
-hold all
+hold on
 plot( times, realX(:, 3), "b")
 plot( times, measuredQ(:, 3),"r--")
 plot( times, filteredX(:, 3), "g.-")
 legend({"Real q3.", "Measured q3.", "Predicted q3."})
 %ylim([-0.1, 0.1])
 subplot(2,2,4)
-hold all
+hold on
 plot( times, realX(:, 4), "b")
 plot( times, measuredQ(:, 4),"r--")
 plot( times, filteredX(:, 4), "g.-")

@@ -1,5 +1,5 @@
 %% Initializes
-clear all;
+clear;
 close all;
 
 %% Environment
@@ -151,25 +151,25 @@ end
 
 figure
 subplot(2,2,1)
-hold all
+hold on
 plot( times, realX(:, 1),"b")
 %plot( times, measuredQ(:, 1),"r--")
 legend({"Real q1."})
 %ylim([-0.1, 0.1])
 subplot(2,2,2)
-hold all
+hold on
 plot( times, realX(:, 2), "b")
 %plot( times, measuredQ(:, 2),"r--")
 legend({"Real q2."})
 %ylim([-0.1, 0.1])
 subplot(2,2,3)
-hold all
+hold on
 plot( times, realX(:, 3), "b")
 %plot( times, measuredQ(:, 3),"r--")
 legend({"Real q3."})
 %ylim([-0.1, 0.1])
 subplot(2,2,4)
-hold all
+hold on
 plot( times, realX(:, 4), "b")
 %plot( times, measuredQ(:, 4),"r--")
 legend({"Real q4."})
@@ -178,17 +178,17 @@ legend({"Real q4."})
 target = zeros(numRows(2));
 figure
 subplot(3,1,1)
-hold all
+hold on
 plot(times, realE(:,1), "b")
 plot(times, target, "--r")
 legend("Real theta1.", "Target theta1.")
 subplot(3,1,2)
-hold all
+hold on
 plot(times, realE(:,2), "b")
 plot(times, target, "--r")
 legend("Real theta2.", "Target theta2.")
 subplot(3,1,3)
-hold all
+hold on
 plot(times, realE(:,3), "b")
 plot(times, target, "--r")
 legend("Real theta3.", "Target theta3.")

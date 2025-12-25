@@ -1,5 +1,5 @@
 %% Initializes
-clear all;
+clear ;
 close all;
 
 %% Environment
@@ -21,6 +21,9 @@ numRows = size(times);
 syms q1 q2 q3 q4 w1 w2 w3 T1 T2 T3 w1bias w2bias w3bias
 
 % State change function. 
+% TODO: Change the state change function to include only q1-q4 and the
+% biases of the angular rates. Total control/filter state vector is
+% [q1,q2,q3,q4,w1bias,w2bias,w3bias]
 fMatx = [0.5 * (q2*(w3+w3bias) - q3*(w2+w2bias) + q4*(w1+w1bias));
          0.5 * (-q1*(w3+w3bias) + q3*(w1+w1bias) + q4*(w2+w2bias));
          0.5 * (q1*(w2+w2bias) - q2*(w1+w1bias) + q4*(w3+w3bias));
@@ -156,25 +159,25 @@ end
 
 % figure
 % subplot(2,2,1)
-% hold all
+% hold on
 % plot( times, realX(:, 1),"b")
 % plot( times, measuredQ(:, 1),"r--")
 % legend({"Real q1.", "Measured q1."})
 % %ylim([-0.1, 0.1])
 % subplot(2,2,2)
-% hold all
+% hold on
 % plot( times, realX(:, 2), "b")
 % plot( times, measuredQ(:, 2),"r--")
 % legend({"Real q2.", "Measured q2."})
 % %ylim([-0.1, 0.1])
 % subplot(2,2,3)
-% hold all
+% hold on
 % plot( times, realX(:, 3), "b")
 % plot( times, measuredQ(:, 3),"r--")
 % legend({"Real q3.", "Measured q3."})
 % %ylim([-0.1, 0.1])
 % subplot(2,2,4)
-% hold all
+% hold on
 % plot( times, realX(:, 4), "b")
 % plot( times, measuredQ(:, 4),"r--")
 % legend({"Real q4.", "Measured q4."})
