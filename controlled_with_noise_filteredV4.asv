@@ -67,7 +67,6 @@ function zVec = hEKFFunc (xEKF)
 end
 % Jacobian matrix of observation vector. 
 HMatxEKF = matlabFunction(jacobian(hEKF, xEKF), 'Vars', {xEKF});
-disp(jacobian(hEKF, xEKF))
 
 %% Sensor characteristics. 
 % Euler angle std deviations.  
@@ -115,8 +114,6 @@ Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
 
 w = ((2 *Q.' *qDot.') + wOrbital.').';
 
-wDot = w_dot(J, meanMot, qInit, w, [0,0,0], [0,0,0]);
-
 %% Initial Measurements. 
 % Creates initial error quaternion and applies. 
 qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
@@ -135,9 +132,10 @@ stateReal(1:4, 1) = qInit.';
 stateReal(5:7, 1) = w(1:3).';
 
 % Initial estimate for optimal EKFiltered state. 
-startQuaternion = [1,2,3,4] / norm([1,2,3,4]);
-xEKFBest(:,1) = [qInit,0,0,0];
+startQuaternion = [1,1,1,1] / norm([1,2,3,4]);
+xEKFBest(:,1) = [startQuaternion,0,0,0];
 
+% Initial value for measured angles 
 zEKF(1:3, 1) = quat_to_eul(qInitMeasure);
 
 % Initial control torque. 
@@ -159,14 +157,13 @@ for i = 1:numRows(2)-1
     wMeasured = stateReal(5:7, i) + wBias.';
     % Noise added to Euler angles. Requires use of observation func. 
     zEKF(:,i+1) = hEKFFunc(stateReal(1:4,i+1)).' + thetaNoise(i+1,:);
+    disp("% Apply bias and noise to measurements.   ---//---")
     disp(zEKF(:,i+1))
 
     %% EKF Filtering of next state. 
  
     % Prediction of next state. ---//---
     [~, xEKFOdeOutput] =  ode45(@(t,xEKF) fEKFFunc(t,xEKF, wMeasured), timespan, [xEKFBest(:,i)]);
-    
-
 
     xEKFPredicted(:,i+1) = xEKFOdeOutput(end,:);
     % Maintains quaternion magnitude one. 
@@ -211,12 +208,7 @@ for i = 1:numRows(2)-1
     xEKFBest(5:7, i+1) = xEKFPredicted(5:7,i+1) + xEKFInnovation(5:7); 
     % Applies quaterternion correction via multiplicative EKF method. 
     % (Via quaternion multiplication)
-    qPredicted = quaternion(xEKFPredicted(4,i+1), xEKFPredicted(1,i+1), xEKFPredicted(2,i+1), xEKFPredicted(3,i+1));
-    qInnovation = quaternion(xEKFInnovation(4), xEKFInnovation(1), xEKFInnovation(2), xEKFInnovation(3));
-    qBest = compact(qPredicted * qInnovation);
-    % Necessary since course notation doesn't match matlab... 
-    xEKFBest(1:3, i+1) = qBest(2:4);
-    xEKFBest(4, i+1) = qBest(1);
+    xEKFBest(1:4, i+1) = quat_mul(xEKFPredicted(1:4,i+1), xEKFInnovation(1:4));
 
 
     % Maintains magnitude 1 for quaternion elements. 
