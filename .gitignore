@@ -1,1 +1,5 @@
 
+control_torque_plots.svg
+euler_angle_plots.svg
+quaternion_plots.svg
+angular_rate_plots.svg

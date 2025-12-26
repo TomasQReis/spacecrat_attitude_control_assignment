@@ -17,7 +17,7 @@ timeStep            = 0.01;             % Seconds
 timeFinal           = 200;              % Seconds
 
 times               = 0:timeStep:timeFinal;
-numRows             = size(times);
+numCols             = size(times);
 
 %% Reality Simulation Variables and description. 
 syms xReal [7 1] real
@@ -100,9 +100,9 @@ HMatxEKF = matlabFunction(horzcat(dHdq * dqdq_Error, dHdwBias) , ...
 thetaNoiseSTDev = deg2rad(0.1) * ones([1,3]);
 
 % Quaternion std deviations for initialization of P matrix.
-theta1Noises = thetaNoiseSTDev(1) * randn(numRows(2),1);
-theta2Noises = thetaNoiseSTDev(2) * randn(numRows(2),1);
-theta3Noises = thetaNoiseSTDev(3) * randn(numRows(2),1);
+theta1Noises = thetaNoiseSTDev(1) * randn(numCols(2),1);
+theta2Noises = thetaNoiseSTDev(2) * randn(numCols(2),1);
+theta3Noises = thetaNoiseSTDev(3) * randn(numCols(2),1);
 thetaNoise = [theta1Noises, theta2Noises, theta3Noises];
 
 % Angular rate bias. 
@@ -151,18 +151,18 @@ qInitMeasure = quat_mul(qInitError, qInit);
 
 %% State array initialization. 
 % Reality state.
-stateReal       = zeros(7, numRows(2));
+stateReal       = zeros(7, numCols(2));
 
 % EKF ----
 % Global state.
-qEKF                    = zeros(4, numRows(2));
-wBiasEKF                = zeros(3, numRows(2));
+qEKF                    = zeros(4, numCols(2));
+wBiasEKF                = zeros(3, numCols(2));
 % Error state. 
 qError                  = zeros(3, 1);
 wBiasError              = zeros(3, 1);
 
 % Measurement vectors. 
-zEKF                    = zeros(4, numRows(2));
+zEKF                    = zeros(4, numCols(2));
 
 %% Initial values
 % Reality state. 
@@ -188,8 +188,8 @@ numIters = 1;
 
 %% Controller values.
 % Controller Gains
-Kq              = 30;                        % Quaternion gain.
-Kw              = 50;                        % Angular rate gain
+Kq              = 15;                        % Quaternion gain.
+Kw              = 60;                        % Angular rate gain
 
 % Controller Targets
 eulerTarget     = [0;0;0];                  % rad
@@ -198,15 +198,17 @@ wTarget         = [0;0;0];
 
 %% Analysis variables.
 % Vector of real euler angles. 
-ctrlEuler       = zeros(3, numRows(2));
+ctrlEuler       = zeros(3, numCols(2));
 % Vector of real euler angle accuracy (error).
-ctrlEulerError  = zeros(3, numRows(2));
+ctrlEulerError  = zeros(3, numCols(2));
+% Vector of control Torques. 
+ctrlTorques     = zeros(3, numCols(2));
 
 % Initial values. 
-ctrlEuler(:,1)      = quat_to_eul(stateReal(1:4,1));
+ctrlEuler(:,1)      = rad2deg(quat_to_eul(stateReal(1:4,1)));
 ctrlEulerError(:,1) = ctrlEuler(:,1) - eulerTarget;
 
-for i = 1:numRows(2)-1
+for i = 1:numCols(2)-1
     %% Propagation of real state.
     % Uses torques from previous step to propagate to next.  ---//---
     [~, xRealOdeOutput] =  ode45(@(t,xReal) fRealFunc(t, xReal, ctrlTorque, J, meanMot), ...
@@ -291,18 +293,24 @@ for i = 1:numRows(2)-1
         P_k_k = (eye(6) - K_k1*H_k1)*P_k1_k;
     end
 
-    %% Controller logic. 
+    %% Controller logic.
+    % Ensures same hemisphere for target and estimated quaternion. 
+    if dot(qEKF(:,i+1), qTarget) < 0
+        qTarget = -qTarget;
+    end
+
     % Calculates quaternion error via multiplication of ekf x target. 
-    qControlError = quat_mul(qEKF(:, i+1), qTarget);
+    qControlError = quat_mul(qEKF(:, i+1), quat_conj(qTarget));
     
     % Calculates angular rate error using measurement and bias. 
     wControlError = (wMeasured - wBiasEKF(:, i+1)) - wTarget;
 
     %Obtains control torque using errors. 
-    ctrlTorque = - (Kq*qControlError(1:3) + Kw * wControlError);
+    ctrlTorque = - Kq*qControlError(1:3) - [Kw*0.8; Kw*0.9; Kw/10].*wControlError;
+    ctrlTorques(:,i+1) = ctrlTorque.';
 
     %% Just for fun.
-    if times(i) > 100
+    if i == timeFinal / (2*timeStep)
         eulerTarget = deg2rad([10;10;10]);
         qTarget = eul_to_quat(eulerTarget);
     end
@@ -311,66 +319,106 @@ end
 
 
 %% Quaternion plots. 
-figure
+fig1 = figure;
+
 subplot(2,2,1)
 hold on
 plot( times, stateReal(1,:),"r")
-plot( times, qEKF(1,:), "g.-")
-legend({"Real q4.", "EKFiltered q1."})
+plot( times, qEKF(1,:), "b--")
+legend({"Real q_1", "MEKF q_1"})
+grid()
+ylabel("q_1 Magnitude [-]")
 subplot(2,2,2)
 hold on
 plot( times, stateReal(2,:),"r")
-plot( times, qEKF(2,:), "g.-")
-legend({"Real q4.", "EKFiltered q2."})
+plot( times, qEKF(2,:), "b--")
+legend({"Real q_2", "MEKF q_2"})
+grid()
+ylabel("q_2 Magnitude [-]")
+xlabel("Simulation Time [s]")
 subplot(2,2,3)
 hold on
 plot( times, stateReal(3,:),"r")
-plot( times, qEKF(3,:), "g.-")
-legend({"Real q4.", "EKFiltered q3."})
+plot( times, qEKF(3,:), "b--")
+legend({"Real q_3", "MEKF q_3"})
+grid()
+ylabel("q_3 Magnitude [-]")
 subplot(2,2,4)
 hold on
 plot( times, stateReal(4,:),"r")
-plot( times, qEKF(4,:), "g.-")
-legend({"Real q4.", "EKFiltered q4."})
+plot( times, qEKF(4,:), "b--")
+legend({"Real q_4", "MEKF q_4"})
+grid()
+ylabel("q_4 Magnitude [-]")
+xlabel("Simulation Time [s]")
+fontsize(scale=1.5)
+exportgraphics(fig1, "quaternion_plots.svg", Resolution=600)
 
-%% Angular rate plots. 
+%% Angular rate error plots. 
 figure
+
 subplot(3,1,1)
 hold on
-plot( times, stateReal(5,:),"b--")
 plot( times, wBias(1)*ones(size(times)),"r")
-plot( times, wBiasEKF(1,:), "g.-")
-legend({"W1 Real.", "W1 Bias.", "W1 Bias Estimate."})
+plot( times, wBiasEKF(1,:), "b--")
+legend({ "\omega_1 Bias.", "\omega_1 Bias Estimate."})
+grid()
+ylabel("\omega_1 [rad/s]")
 subplot(3,1,2)
 hold on
-plot( times, stateReal(6,:),"b--")
 plot( times, wBias(2)*ones(size(times)),"r")
-plot( times, wBiasEKF(2,:), "g.-")
-legend({"W2 Real.","W2 Bias.", "W2 Bias Estimate."})
+plot( times, wBiasEKF(2,:), "b--")
+legend({"\omega_2 Bias.", "\omega_2 Bias Estimate."})
+grid()
+ylabel("\omega_2 [rad/s]")
 subplot(3,1,3)
 hold on
-plot( times, stateReal(7,:),"b--")
 plot( times, wBias(3)*ones(size(times)),"r")
-plot( times, wBiasEKF(3,:), "g.-")
-legend({"W3 Real.","W3 Bias.", "W3 Bias Estimate."})
+plot( times, wBiasEKF(3,:), "b--")
+grid()
+xlabel("Simulation Time [s]")
+ylabel("\omega_3 [rad/s]")
+legend({"\omega_3 Bias.", "\omega_3 Bias Estimate."})
+fontsize(scale=1.5)
+exportgraphics(fig1, "quaternion_plots.svg", Resolution=600)
 
 %% Euler angle plots. 
 figure
+
 subplot(3,1,1)
 hold on
 plot( times, ctrlEuler(1,:),"r")
 plot( times, ctrlEulerError(1,:),"b--")
 legend("Real \theta_1", "\theta_1 Error")
+ylabel("\theta_1 [º]")
 grid()
 subplot(3,1,2)
 hold on
 plot( times, ctrlEuler(2,:),"r")
 plot( times, ctrlEulerError(2,:),"b--")
 legend("Real \theta_2", "\theta_2 Error")
+ylabel("\theta_2 [º]")
 grid()
 subplot(3,1,3)
 hold on
 plot( times, ctrlEuler(3,:),"r")
 plot( times, ctrlEulerError(3,:),"b--")
 legend("Real \theta_3", "\theta_3 Error")
+xlabel("Simulation Time [s]")
+ylabel("\theta_3 [º]")
+fontsize(scale=1.5)
+grid()
+exportgraphics(fig1, "quaternion_plots.svg", Resolution=600)
+
+%% Control torques plot. 
+figure
+
+hold on
+plot(times, ctrlTorques(1,:), "r")
+plot(times, ctrlTorques(2,:), "b--")
+plot(times, ctrlTorques(3,:), "g:")
+legend("T_1", "T_2", "T_3")
+xlabel("Simulation Time [s]")
+ylabel("Control Torque [N/m]")
+fontsize(scale=1.5)
 grid()

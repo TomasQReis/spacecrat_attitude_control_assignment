@@ -205,7 +205,7 @@ ctrlEulerError  = zeros(3, numCols(2));
 ctrlTorques     = zeros(3, numCols(2));
 
 % Initial values. 
-ctrlEuler(:,1)      = quat_to_eul(stateReal(1:4,1));
+ctrlEuler(:,1)      = rad2deg(quat_to_eul(stateReal(1:4,1)));
 ctrlEulerError(:,1) = ctrlEuler(:,1) - eulerTarget;
 
 for i = 1:numCols(2)-1
@@ -306,7 +306,7 @@ for i = 1:numCols(2)-1
     wControlError = (wMeasured - wBiasEKF(:, i+1)) - wTarget;
 
     %Obtains control torque using errors. 
-    ctrlTorque = - Kq*qControlError(1:3) - [Kw; Kw; Kw/10].*wControlError;
+    ctrlTorque = - Kq*qControlError(1:3) - [Kw*0.8; Kw*0.9; Kw/10].*wControlError;
     ctrlTorques(:,i+1) = ctrlTorque.';
 
     %% Just for fun.
@@ -319,78 +319,107 @@ end
 
 
 %% Quaternion plots. 
-figure
+fig1 = figure;
+
 subplot(2,2,1)
 hold on
 plot( times, stateReal(1,:),"r")
-plot( times, qEKF(1,:), "g.-")
-legend({"Real q4.", "EKFiltered q1."})
+plot( times, qEKF(1,:), "b--")
+legend({"Real q_1", "MEKF q_1"})
+grid()
+ylabel("q_1 Magnitude [-]")
 subplot(2,2,2)
 hold on
 plot( times, stateReal(2,:),"r")
-plot( times, qEKF(2,:), "g.-")
-legend({"Real q4.", "EKFiltered q2."})
+plot( times, qEKF(2,:), "b--")
+legend({"Real q_2", "MEKF q_2"})
+grid()
+ylabel("q_2 Magnitude [-]")
+xlabel("Simulation Time [s]")
 subplot(2,2,3)
 hold on
 plot( times, stateReal(3,:),"r")
-plot( times, qEKF(3,:), "g.-")
-legend({"Real q4.", "EKFiltered q3."})
+plot( times, qEKF(3,:), "b--")
+legend({"Real q_3", "MEKF q_3"})
+grid()
+ylabel("q_3 Magnitude [-]")
 subplot(2,2,4)
 hold on
 plot( times, stateReal(4,:),"r")
-plot( times, qEKF(4,:), "g.-")
-legend({"Real q4.", "EKFiltered q4."})
+plot( times, qEKF(4,:), "b--")
+legend({"Real q_4", "MEKF q_4"})
+grid()
+ylabel("q_4 Magnitude [-]")
+xlabel("Simulation Time [s]")
+fontsize(scale=1.5)
+exportgraphics(fig1, "quaternion_plots.svg", Resolution=600)
 
-%% Angular rate plots. 
-figure
+%% Angular rate error plots. 
+fig1 = figure;
+
 subplot(3,1,1)
 hold on
-plot( times, stateReal(5,:),"b--")
 plot( times, wBias(1)*ones(size(times)),"r")
-plot( times, wBiasEKF(1,:), "g.-")
-legend({"W1 Real.", "W1 Bias.", "W1 Bias Estimate."})
+plot( times, wBiasEKF(1,:), "b--")
+legend({ "\omega_1 Bias.", "\omega_1 Bias Estimate."})
+grid()
+ylabel("\omega_1 [rad/s]")
 subplot(3,1,2)
 hold on
-plot( times, stateReal(6,:),"b--")
 plot( times, wBias(2)*ones(size(times)),"r")
-plot( times, wBiasEKF(2,:), "g.-")
-legend({"W2 Real.","W2 Bias.", "W2 Bias Estimate."})
+plot( times, wBiasEKF(2,:), "b--")
+legend({"\omega_2 Bias.", "\omega_2 Bias Estimate."})
+grid()
+ylabel("\omega_2 [rad/s]")
 subplot(3,1,3)
 hold on
-plot( times, stateReal(7,:),"b--")
 plot( times, wBias(3)*ones(size(times)),"r")
-plot( times, wBiasEKF(3,:), "g.-")
-legend({"W3 Real.","W3 Bias.", "W3 Bias Estimate."})
+plot( times, wBiasEKF(3,:), "b--")
+grid()
+xlabel("Simulation Time [s]")
+ylabel("\omega_3 [rad/s]")
+legend({"\omega_3 Bias.", "\omega_3 Bias Estimate."})
+fontsize(scale=1.5)
+exportgraphics(fig1, "angular_rate_plots.svg", Resolution=600)
 
 %% Euler angle plots. 
-figure
+fig1 = figure;
+
 subplot(3,1,1)
 hold on
 plot( times, ctrlEuler(1,:),"r")
 plot( times, ctrlEulerError(1,:),"b--")
 legend("Real \theta_1", "\theta_1 Error")
+ylabel("\theta_1 [º]")
 grid()
 subplot(3,1,2)
 hold on
 plot( times, ctrlEuler(2,:),"r")
 plot( times, ctrlEulerError(2,:),"b--")
 legend("Real \theta_2", "\theta_2 Error")
+ylabel("\theta_2 [º]")
 grid()
 subplot(3,1,3)
 hold on
 plot( times, ctrlEuler(3,:),"r")
 plot( times, ctrlEulerError(3,:),"b--")
 legend("Real \theta_3", "\theta_3 Error")
+xlabel("Simulation Time [s]")
+ylabel("\theta_3 [º]")
+fontsize(scale=1.5)
 grid()
-
+exportgraphics(fig1, "euler_angle_plots.svg", Resolution=600)
 
 %% Control torques plot. 
-figure
+fig1 = figure;
+
 hold on
 plot(times, ctrlTorques(1,:), "r")
-plot(times, ctrlTorques(2,:), "g--")
-plot(times, ctrlTorques(3,:), "b:")
+plot(times, ctrlTorques(2,:), "b--")
+plot(times, ctrlTorques(3,:), "g:")
 legend("T_1", "T_2", "T_3")
 xlabel("Simulation Time [s]")
 ylabel("Control Torque [N/m]")
+fontsize(scale=1.5)
 grid()
+exportgraphics(fig1, "control_torque_plots.svg", Resolution=600)
