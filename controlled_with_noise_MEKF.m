@@ -4,19 +4,20 @@ clear;
 close all;
 
 %% Environment
-mu = 3.986004418e5;     % km^3/s^-2
-semiMajor = 700 + 6378; % km
+mu                  = 3.986004418e5;     % km^3/s^-2
+semiMajor           = 700 + 6378; % km
 
-timeStep = 0.01;         % Seconds
-timeFinal = 200;       % Seconds
+meanMot             = mean_mot(mu, semiMajor);
+J                   = [124.531, 0, 0;
+                         0, 124.586, 0;
+                         0, 0, 0.704];
 
-meanMot = mean_mot(mu, semiMajor);
-J = [124.531, 0, 0;
-     0, 124.586, 0;
-     0, 0, 0.704];
+%% Propagation
+timeStep            = 0.01;             % Seconds
+timeFinal           = 200;              % Seconds
 
-times = 0:timeStep:timeFinal;
-numRows = size(times);
+times               = 0:timeStep:timeFinal;
+numCols             = size(times);
 
 %% Reality Simulation Variables and description. 
 syms xReal [7 1] real
@@ -99,9 +100,9 @@ HMatxEKF = matlabFunction(horzcat(dHdq * dqdq_Error, dHdwBias) , ...
 thetaNoiseSTDev = deg2rad(0.1) * ones([1,3]);
 
 % Quaternion std deviations for initialization of P matrix.
-theta1Noises = thetaNoiseSTDev(1) * randn(numRows(2),1);
-theta2Noises = thetaNoiseSTDev(2) * randn(numRows(2),1);
-theta3Noises = thetaNoiseSTDev(3) * randn(numRows(2),1);
+theta1Noises = thetaNoiseSTDev(1) * randn(numCols(2),1);
+theta2Noises = thetaNoiseSTDev(2) * randn(numCols(2),1);
+theta3Noises = thetaNoiseSTDev(3) * randn(numCols(2),1);
 thetaNoise = [theta1Noises, theta2Noises, theta3Noises];
 
 % Angular rate bias. 
@@ -114,7 +115,7 @@ RMatx = diag(thetaNoiseSTDev);
 P_k_k = diag([thetaNoiseSTDev, 0, 0, 0]);
 
 % Creates a random walk matrix to use for wBias. 
-sigmaBias = deg2rad(0.001);  
+sigmaBias = deg2rad(0.0005);  
 walkMatrix = blkdiag(zeros(3), sigmaBias^2 * eye(3));
 
 %% Initial Conditions %% 
@@ -150,18 +151,18 @@ qInitMeasure = quat_mul(qInitError, qInit);
 
 %% State array initialization. 
 % Reality state.
-stateReal       = zeros(7, numRows(2));
+stateReal       = zeros(7, numCols(2));
 
 % EKF ----
 % Global state.
-qEKF                    = zeros(4, numRows(2));
-wBiasEKF                = zeros(3, numRows(2));
+qEKF                    = zeros(4, numCols(2));
+wBiasEKF                = zeros(3, numCols(2));
 % Error state. 
 qError                  = zeros(3, 1);
 wBiasError              = zeros(3, 1);
 
 % Measurement vectors. 
-zEKF                    = zeros(4, numRows(2));
+zEKF                    = zeros(4, numCols(2));
 
 %% Initial values
 % Reality state. 
@@ -185,7 +186,29 @@ timespan = [0 timeStep];
 %% Number of iterations for error finding. 
 numIters = 1;
 
-for i = 1:numRows(2)-1
+%% Controller values.
+% Controller Gains
+Kq              = 15;                        % Quaternion gain.
+Kw              = 60;                        % Angular rate gain
+
+% Controller Targets
+eulerTarget     = [0;0;0];                  % rad
+qTarget         = eul_to_quat(eulerTarget);     
+wTarget         = [0;0;0];
+
+%% Analysis variables.
+% Vector of real euler angles. 
+ctrlEuler       = zeros(3, numCols(2));
+% Vector of real euler angle accuracy (error).
+ctrlEulerError  = zeros(3, numCols(2));
+% Vector of control Torques. 
+ctrlTorques     = zeros(3, numCols(2));
+
+% Initial values. 
+ctrlEuler(:,1)      = quat_to_eul(stateReal(1:4,1));
+ctrlEulerError(:,1) = ctrlEuler(:,1) - eulerTarget;
+
+for i = 1:numCols(2)-1
     %% Propagation of real state.
     % Uses torques from previous step to propagate to next.  ---//---
     [~, xRealOdeOutput] =  ode45(@(t,xReal) fRealFunc(t, xReal, ctrlTorque, J, meanMot), ...
@@ -197,6 +220,12 @@ for i = 1:numRows(2)-1
     wMeasured = stateReal(5:7, i) + wBias.';
     % Noise added to Euler angles. 
     zEKF(:,i+1) = eul_to_quat(quat_to_eul(stateReal(1:4,i+1)) + thetaNoise(i+1,:).');
+
+    % Saves current error in Euler angles. 
+    % Note that this does slow the code a bit but it wouldn't be part of
+    % the main controller anyway. Just for show. 
+    ctrlEuler(:,i+1)      = rad2deg(quat_to_eul(stateReal(1:4,i+1)));
+    ctrlEulerError(:,i+1) = ctrlEuler(:,i+1) - rad2deg(eulerTarget);
 
     %% EKF Portion.
     % Prediction of next state. ---//---
@@ -264,51 +293,104 @@ for i = 1:numRows(2)-1
         P_k_k = (eye(6) - K_k1*H_k1)*P_k1_k;
     end
 
+    %% Controller logic.
+    % Ensures same hemisphere for target and estimated quaternion. 
+    if dot(qEKF(:,i+1), qTarget) < 0
+        qTarget = -qTarget;
+    end
+
+    % Calculates quaternion error via multiplication of ekf x target. 
+    qControlError = quat_mul(qEKF(:, i+1), quat_conj(qTarget));
     
+    % Calculates angular rate error using measurement and bias. 
+    wControlError = (wMeasured - wBiasEKF(:, i+1)) - wTarget;
+
+    %Obtains control torque using errors. 
+    ctrlTorque = - Kq*qControlError(1:3) - [Kw; Kw; Kw/10].*wControlError;
+    ctrlTorques(:,i+1) = ctrlTorque.';
+
+    %% Just for fun.
+    if i == timeFinal / (2*timeStep)
+        eulerTarget = deg2rad([10;10;10]);
+        qTarget = eul_to_quat(eulerTarget);
+    end
 
 end
 
+
+%% Quaternion plots. 
 figure
 subplot(2,2,1)
 hold on
-
 plot( times, stateReal(1,:),"r")
 plot( times, qEKF(1,:), "g.-")
 legend({"Real q4.", "EKFiltered q1."})
-
 subplot(2,2,2)
 hold on
 plot( times, stateReal(2,:),"r")
 plot( times, qEKF(2,:), "g.-")
 legend({"Real q4.", "EKFiltered q2."})
-
 subplot(2,2,3)
 hold on
 plot( times, stateReal(3,:),"r")
 plot( times, qEKF(3,:), "g.-")
 legend({"Real q4.", "EKFiltered q3."})
-
 subplot(2,2,4)
 hold on
 plot( times, stateReal(4,:),"r")
 plot( times, qEKF(4,:), "g.-")
 legend({"Real q4.", "EKFiltered q4."})
 
+%% Angular rate plots. 
 figure
 subplot(3,1,1)
 hold on
+plot( times, stateReal(5,:),"b--")
 plot( times, wBias(1)*ones(size(times)),"r")
 plot( times, wBiasEKF(1,:), "g.-")
-legend({"W1 Bias.", "W1 Bias Estimate."})
-
+legend({"W1 Real.", "W1 Bias.", "W1 Bias Estimate."})
 subplot(3,1,2)
 hold on
+plot( times, stateReal(6,:),"b--")
 plot( times, wBias(2)*ones(size(times)),"r")
 plot( times, wBiasEKF(2,:), "g.-")
-legend({"W2 Bias.", "W2 Bias Estimate."})
-
+legend({"W2 Real.","W2 Bias.", "W2 Bias Estimate."})
 subplot(3,1,3)
 hold on
+plot( times, stateReal(7,:),"b--")
 plot( times, wBias(3)*ones(size(times)),"r")
 plot( times, wBiasEKF(3,:), "g.-")
-legend({"W3 Bias.", "W3 Bias Estimate."})
+legend({"W3 Real.","W3 Bias.", "W3 Bias Estimate."})
+
+%% Euler angle plots. 
+figure
+subplot(3,1,1)
+hold on
+plot( times, ctrlEuler(1,:),"r")
+plot( times, ctrlEulerError(1,:),"b--")
+legend("Real \theta_1", "\theta_1 Error")
+grid()
+subplot(3,1,2)
+hold on
+plot( times, ctrlEuler(2,:),"r")
+plot( times, ctrlEulerError(2,:),"b--")
+legend("Real \theta_2", "\theta_2 Error")
+grid()
+subplot(3,1,3)
+hold on
+plot( times, ctrlEuler(3,:),"r")
+plot( times, ctrlEulerError(3,:),"b--")
+legend("Real \theta_3", "\theta_3 Error")
+grid()
+
+
+%% Control torques plot. 
+figure
+hold on
+plot(times, ctrlTorques(1,:), "r")
+plot(times, ctrlTorques(2,:), "g--")
+plot(times, ctrlTorques(3,:), "b:")
+legend("T_1", "T_2", "T_3")
+xlabel("Simulation Time [s]")
+ylabel("Control Torque [N/m]")
+grid()

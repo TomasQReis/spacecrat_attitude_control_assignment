@@ -4,19 +4,20 @@ clear;
 close all;
 
 %% Environment
-mu = 3.986004418e5;     % km^3/s^-2
-semiMajor = 700 + 6378; % km
+mu                  = 3.986004418e5;     % km^3/s^-2
+semiMajor           = 700 + 6378; % km
 
-timeStep = 0.01;         % Seconds
-timeFinal = 200;       % Seconds
+meanMot             = mean_mot(mu, semiMajor);
+J                   = [124.531, 0, 0;
+                         0, 124.586, 0;
+                         0, 0, 0.704];
 
-meanMot = mean_mot(mu, semiMajor);
-J = [124.531, 0, 0;
-     0, 124.586, 0;
-     0, 0, 0.704];
+%% Propagation
+timeStep            = 0.01;             % Seconds
+timeFinal           = 200;              % Seconds
 
-times = 0:timeStep:timeFinal;
-numRows = size(times);
+times               = 0:timeStep:timeFinal;
+numRows             = size(times);
 
 %% Reality Simulation Variables and description. 
 syms xReal [7 1] real
@@ -114,12 +115,12 @@ RMatx = diag(thetaNoiseSTDev);
 P_k_k = diag([thetaNoiseSTDev, 0, 0, 0]);
 
 % Creates a random walk matrix to use for wBias. 
-sigmaBias = deg2rad(0.001);  
-walkMatrix = blkdiag(zeros(3), sigma_bias^2 * eye(3));
+sigmaBias = deg2rad(0.0005);  
+walkMatrix = blkdiag(zeros(3), sigmaBias^2 * eye(3));
 
 %% Initial Conditions %% 
 % Initial euler angles. 
-theta1 = 5*pi/180; theta2 = 5*pi/180; theta3 = 5*pi/180;
+theta1 = deg2rad(5); theta2 = deg2rad(5); theta3 = deg2rad(5);
 
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
 % Defined within Body frame. 
@@ -185,6 +186,26 @@ timespan = [0 timeStep];
 %% Number of iterations for error finding. 
 numIters = 1;
 
+%% Controller values.
+% Controller Gains
+Kq              = 30;                        % Quaternion gain.
+Kw              = 50;                        % Angular rate gain
+
+% Controller Targets
+eulerTarget     = [0;0;0];                  % rad
+qTarget         = eul_to_quat(eulerTarget);     
+wTarget         = [0;0;0];
+
+%% Analysis variables.
+% Vector of real euler angles. 
+ctrlEuler       = zeros(3, numRows(2));
+% Vector of real euler angle accuracy (error).
+ctrlEulerError  = zeros(3, numRows(2));
+
+% Initial values. 
+ctrlEuler(:,1)      = quat_to_eul(stateReal(1:4,1));
+ctrlEulerError(:,1) = ctrlEuler(:,1) - eulerTarget;
+
 for i = 1:numRows(2)-1
     %% Propagation of real state.
     % Uses torques from previous step to propagate to next.  ---//---
@@ -197,6 +218,12 @@ for i = 1:numRows(2)-1
     wMeasured = stateReal(5:7, i) + wBias.';
     % Noise added to Euler angles. 
     zEKF(:,i+1) = eul_to_quat(quat_to_eul(stateReal(1:4,i+1)) + thetaNoise(i+1,:).');
+
+    % Saves current error in Euler angles. 
+    % Note that this does slow the code a bit but it wouldn't be part of
+    % the main controller anyway. Just for show. 
+    ctrlEuler(:,i+1)      = rad2deg(quat_to_eul(stateReal(1:4,i+1)));
+    ctrlEulerError(:,i+1) = ctrlEuler(:,i+1) - rad2deg(eulerTarget);
 
     %% EKF Portion.
     % Prediction of next state. ---//---
@@ -225,7 +252,7 @@ for i = 1:numRows(2)-1
         % Calculate phi matrix. 
         phiMatx = eye(6) + timeStep*FMatxEKF_i;
         % Update covariance matrix.
-        P_k1_k = phiMatx * P_k_k * phiMatx.';
+        P_k1_k = phiMatx * P_k_k * phiMatx.' + walkMatrix;
         
     
         % Update Kalman gain matrix. ---//---
@@ -238,10 +265,10 @@ for i = 1:numRows(2)-1
         K_k1 = P_k1_k*H_k1.' / (H_k1*P_k1_k*H_k1.' + RMatx);
     
         % Innovation vector using quaternion error. 
-        q_err = quat_mul(zEKF(:,i+1), quat_conj(zPredicted));
+        qErr = quat_mul(zEKF(:,i+1), quat_conj(zPredicted));
 
         % Small-angle residual
-        delta_z = 2 * q_err(1:3);
+        delta_z = 2 * qErr(1:3);
        
         % Update error state. ---//---
         % Assumes reset errors on each time-step.
@@ -264,51 +291,86 @@ for i = 1:numRows(2)-1
         P_k_k = (eye(6) - K_k1*H_k1)*P_k1_k;
     end
 
+    %% Controller logic. 
+    % Calculates quaternion error via multiplication of ekf x target. 
+    qControlError = quat_mul(qEKF(:, i+1), qTarget);
     
+    % Calculates angular rate error using measurement and bias. 
+    wControlError = (wMeasured - wBiasEKF(:, i+1)) - wTarget;
+
+    %Obtains control torque using errors. 
+    ctrlTorque = - (Kq*qControlError(1:3) + Kw * wControlError);
+
+    %% Just for fun.
+    if times(i) > 100
+        eulerTarget = deg2rad([10;10;10]);
+        qTarget = eul_to_quat(eulerTarget);
+    end
 
 end
 
+
+%% Quaternion plots. 
 figure
 subplot(2,2,1)
 hold on
-
 plot( times, stateReal(1,:),"r")
 plot( times, qEKF(1,:), "g.-")
 legend({"Real q4.", "EKFiltered q1."})
-
 subplot(2,2,2)
 hold on
 plot( times, stateReal(2,:),"r")
 plot( times, qEKF(2,:), "g.-")
 legend({"Real q4.", "EKFiltered q2."})
-
 subplot(2,2,3)
 hold on
 plot( times, stateReal(3,:),"r")
 plot( times, qEKF(3,:), "g.-")
 legend({"Real q4.", "EKFiltered q3."})
-
 subplot(2,2,4)
 hold on
 plot( times, stateReal(4,:),"r")
 plot( times, qEKF(4,:), "g.-")
 legend({"Real q4.", "EKFiltered q4."})
 
+%% Angular rate plots. 
 figure
 subplot(3,1,1)
 hold on
+plot( times, stateReal(5,:),"b--")
 plot( times, wBias(1)*ones(size(times)),"r")
 plot( times, wBiasEKF(1,:), "g.-")
-legend({"W1 Bias.", "W1 Bias Estimate."})
-
+legend({"W1 Real.", "W1 Bias.", "W1 Bias Estimate."})
 subplot(3,1,2)
 hold on
+plot( times, stateReal(6,:),"b--")
 plot( times, wBias(2)*ones(size(times)),"r")
 plot( times, wBiasEKF(2,:), "g.-")
-legend({"W2 Bias.", "W2 Bias Estimate."})
-
+legend({"W2 Real.","W2 Bias.", "W2 Bias Estimate."})
 subplot(3,1,3)
 hold on
+plot( times, stateReal(7,:),"b--")
 plot( times, wBias(3)*ones(size(times)),"r")
 plot( times, wBiasEKF(3,:), "g.-")
-legend({"W3 Bias.", "W3 Bias Estimate."})
+legend({"W3 Real.","W3 Bias.", "W3 Bias Estimate."})
+
+%% Euler angle plots. 
+figure
+subplot(3,1,1)
+hold on
+plot( times, ctrlEuler(1,:),"r")
+plot( times, ctrlEulerError(1,:),"b--")
+legend("Real \theta_1", "\theta_1 Error")
+grid()
+subplot(3,1,2)
+hold on
+plot( times, ctrlEuler(2,:),"r")
+plot( times, ctrlEulerError(2,:),"b--")
+legend("Real \theta_2", "\theta_2 Error")
+grid()
+subplot(3,1,3)
+hold on
+plot( times, ctrlEuler(3,:),"r")
+plot( times, ctrlEulerError(3,:),"b--")
+legend("Real \theta_3", "\theta_3 Error")
+grid()

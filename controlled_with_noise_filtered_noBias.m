@@ -205,6 +205,7 @@ for i = 1:numRows(2)-1
     % Updates state covariance matrix. 
     Pk1k1 = (eye(7)-K*HMatxNum) * Pk1k * (eye(7)-K*HMatxNum).' + ...
             K*RMatx*K.';
+    
 end
 
 figure
