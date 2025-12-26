@@ -1,11 +1,11 @@
 % Verified. 
 % Euler to quaternion transformation. 
-function quat = eul_to_quat(theta1, theta2, theta3)
+function quat = eul_to_quat(theta)
 
     % Precompute half-angles. 
-    t1 = theta1/2;
-    t2 = theta2/2;
-    t3 = theta3/2;
+    t1 = theta(1)/2;
+    t2 = theta(2)/2;
+    t3 = theta(3)/2;
 
     % sines and cosines of half-angles. 
     c1 = cos(t1);  s1 = sin(t1);

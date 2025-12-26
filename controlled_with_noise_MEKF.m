@@ -8,7 +8,7 @@ mu = 3.986004418e5;     % km^3/s^-2
 semiMajor = 700 + 6378; % km
 
 timeStep = 0.01;         % Seconds
-timeFinal = 10;       % Seconds
+timeFinal = 200;       % Seconds
 
 meanMot = mean_mot(mu, semiMajor);
 J = [124.531, 0, 0;
@@ -58,14 +58,15 @@ end
 
 % MEKF error state variables. 
 syms qError [3 1]
+syms wBiasError [3 1]
 % Error state description. 
-fErrorEKF = [-wMeas(3)*qError(2) + wMeas(2)*qError(3) - wBiasEKF(1);...
-             wMeas(3)*qError(1) - wMeas(1)*qError(3) - wBiasEKF(2);...
-             -wMeas(2)*qError(1) + wMeas(1)*qError(2) - wBiasEKF(3);
+fErrorEKF = [-(wMeas(3)-wBiasEKF(3))*qError(2) + (wMeas(2)-wBiasEKF(2))*qError(3) - wBiasError(1);...
+             (wMeas(3)-wBiasEKF(3))*qError(1) - (wMeas(1)-wBiasEKF(1))*qError(3) - wBiasError(2);...
+             -(wMeas(2)-wBiasEKF(2))*qError(1) + (wMeas(1)-wBiasEKF(1))*qError(2) - wBiasError(3);
              0; 0; 0];
 
 % Jacobian function of error state description.  
-FErrorEKF = matlabFunction(jacobian(fErrorEKF, [qError; wBiasEKF]), 'Vars', {qError, wMeas, wBiasEKF});
+FErrorEKF = matlabFunction(jacobian(fErrorEKF, [qError; wBiasError]), 'Vars', {qError, wMeas, wBiasError, wBiasEKF});
 
 %% Observation vector. 
 syms qVector 
@@ -112,9 +113,13 @@ RMatx = diag(thetaNoiseSTDev);
 % Initializes EKF P matrix. (P00)
 P_k_k = diag([thetaNoiseSTDev, 0, 0, 0]);
 
+% Creates a random walk matrix to use for wBias. 
+sigmaBias = deg2rad(0.001);  
+walkMatrix = blkdiag(zeros(3), sigmaBias^2 * eye(3));
+
 %% Initial Conditions %% 
 % Initial euler angles. 
-theta1 = 5*pi/180; theta2 = 5*pi/180; theta3 = 5*pi/180;
+theta1 = deg2rad(5); theta2 = deg2rad(5); theta3 = deg2rad(5);
 
 % Creates angular velocity vector of LVLH frame wrt inertial (J2000).
 % Defined within Body frame. 
@@ -127,7 +132,7 @@ wOrbital = - meanMot * [...
 % Assumes initial qDot=0. 
 qDot = [0, 0, 0, 0];
 % Converts initial euler attitude angles to quaternion.
-qInit = eul_to_quat(theta1, theta2, theta3);
+qInit = eul_to_quat([theta1, theta2, theta3]);
 
 % Obtains initial omega vector. 
 Q = [qInit(4), -qInit(3), qInit(2), qInit(1);
@@ -139,8 +144,8 @@ w = ((2 *Q.' *qDot.') + wOrbital.').';
 
 %% Initial Measurements. 
 % Creates initial error quaternion and applies. 
-qInitError = eul_to_quat(theta1Noises(1), theta2Noises(1), ...
-                         theta3Noises(1));
+qInitError = eul_to_quat([theta1Noises(1), theta2Noises(1), ...
+                         theta3Noises(1)]);
 qInitMeasure = quat_mul(qInitError, qInit);
 
 %% State array initialization. 
@@ -156,7 +161,7 @@ qError                  = zeros(3, 1);
 wBiasError              = zeros(3, 1);
 
 % Measurement vectors. 
-zEKF                    = zeros(3, numRows(2));
+zEKF                    = zeros(4, numRows(2));
 
 %% Initial values
 % Reality state. 
@@ -168,8 +173,8 @@ stateReal(5:7, 1)       = w(1:3).';
 qEKF(:,1) = [1,1,1,1] / norm([1,1,1,1]);
 wBiasEKF(:,1) = zeros(1,3);
 
-% Initial value for measured angles 
-zEKF(:, 1) = quat_to_eul(qEKF(:,1));
+% Initial value for measured quaternions 
+zEKF(:, 1) = qEKF(:,1);
 
 % Initial control torque. 
 ctrlTorque = zeros(1, 3);
@@ -191,7 +196,7 @@ for i = 1:numRows(2)-1
     % wMeasured not saved since only required for input. 
     wMeasured = stateReal(5:7, i) + wBias.';
     % Noise added to Euler angles. 
-    zEKF(:,i+1) = quat_to_eul(stateReal(1:4,i+1)) + thetaNoise(i+1,:).';
+    zEKF(:,i+1) = eul_to_quat(quat_to_eul(stateReal(1:4,i+1)) + thetaNoise(i+1,:).');
 
     %% EKF Portion.
     % Prediction of next state. ---//---
@@ -201,35 +206,50 @@ for i = 1:numRows(2)-1
     qEKF(:,i+1) = xEKFOdeOutput(end,1:4);
     wBiasEKF(:,i+1) = xEKFOdeOutput(end,5:7);
     % Calculates predicted measurement vector. 
-    zPredicted = hEKFFunc(qEKF(:,i+1));
+    zPredicted = qEKF(:,i+1);
 
-        
+    % Guarantees same hemisphere for both measurement quaternions.
+    if dot(zEKF(:,i+1), zPredicted) < 0
+        zEKF(:,i+1) = -zEKF(:,i+1);
+    end
+
+    % Resets error state.  
+    errorState = zeros(6,1);
     
     for j = 1:numIters
         %% Iterative error finding. ---//---
 
         % Update covariance matrix. ---//---
         % Jacobian matrix of error state. 
-        FMatxEKF_i = FErrorEKF(qError, wMeasured, wBiasEKF(:,i+1));
+        FMatxEKF_i = FErrorEKF(qError, wMeasured, wBiasError, wBiasEKF(:,i+1));
         % Calculate phi matrix. 
         phiMatx = eye(6) + timeStep*FMatxEKF_i;
         % Update covariance matrix.
-        P_k1_k = phiMatx * P_k_k * phiMatx.';
+        P_k1_k = phiMatx * P_k_k * phiMatx.' + walkMatrix;
         
     
         % Update Kalman gain matrix. ---//---
-        % H matrix for current step. 
-        H_k1 = HMatxEKF(qEKF(:,i+1));
+        % H matrix for current step. (Using euler h function)
+        % H_k1 = HMatxEKF(qEKF(:,i+1));
+        % H matrix using previous Euler to quaternion conversion. 
+        H_k1 = [eye(3), zeros(3)];
+
         % Update Kalman gain matrix. 
         K_k1 = P_k1_k*H_k1.' / (H_k1*P_k1_k*H_k1.' + RMatx);
     
-        
+        % Innovation vector using quaternion error. 
+        qErr = quat_mul(zEKF(:,i+1), quat_conj(zPredicted));
+
+        % Small-angle residual
+        delta_z = 2 * qErr(1:3);
+       
         % Update error state. ---//---
-        % Assumes reset errors on each time-step. 
-        errorState = K_k1*(zEKF(:,i+1) - zPredicted - H_k1*[qError; wBiasError]);
+        % Assumes reset errors on each time-step.
+        %errorState = errorState + K_k1*(zEKF(:,i+1) - zPredicted - H_k1*[qError; wBiasError]);
+        errorState = errorState + K_k1*(delta_z);
         qError = errorState(1:3);
         wBiasError = errorState(4:6);
-    
+
         % Obtains error quaternion. 
         qErrorQuat = [qError; 1];
     
@@ -244,8 +264,7 @@ for i = 1:numRows(2)-1
         P_k_k = (eye(6) - K_k1*H_k1)*P_k1_k;
     end
 
-    % Resets error state.  
-    errorState = zeros(1,6);
+    
 
 end
 
@@ -275,7 +294,6 @@ plot( times, stateReal(4,:),"r")
 plot( times, qEKF(4,:), "g.-")
 legend({"Real q4.", "EKFiltered q4."})
 
-disp(size(times))
 figure
 subplot(3,1,1)
 hold on
